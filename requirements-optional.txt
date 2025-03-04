@@ -1,0 +1,15 @@
+# Optional dependencies for AutomatedTrading
+
+# Voice recognition (advanced)
+openai-whisper>=20230314
+torch>=2.0.0
+# PyAudio - Required for SpeechRecognition microphone support
+# Installation may require additional system dependencies
+# Windows: pip install pipwin && pipwin install pyaudio
+# Linux: sudo apt-get install portaudio19-dev python-pyaudio && pip install pyaudio
+# macOS: brew install portaudio && pip install pyaudio
+pyaudio>=0.2.11
+
+# GUI enhancement
+Flask>=2.2.2
+Flask-CORS>=3.0.10 

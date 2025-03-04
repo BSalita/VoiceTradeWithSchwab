@@ -1,0 +1,4 @@
+time,symbol,side,quantity,price,order_id,strategy,trading_mode,value,notes
+2025-03-03T23:19:13.886617,MSFT,SELL,5,200.5,1000,,,1002.5,
+2025-03-03T23:20:00.193633,MSFT,SELL,5,200.5,1000,,,1002.5,
+2025-03-03T23:20:38.538365,MSFT,SELL,5,200.5,1000,,,1002.5,

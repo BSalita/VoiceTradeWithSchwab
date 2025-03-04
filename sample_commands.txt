@@ -1,0 +1,23 @@
+# Sample Trading Commands
+# This file contains example commands for the Automated Trading System
+# Lines starting with # are comments and will be ignored
+
+# Get quotes for stocks
+what is the price of AAPL
+what is the price of MSFT
+what is the price of GOOGL
+
+# Place market orders
+buy 10 shares of AAPL
+sell 5 shares of MSFT
+
+# Place limit orders
+buy 10 shares of AAPL at $150.00
+sell 5 shares of MSFT at $350.00
+
+# Check status
+status
+strategies
+
+# View history
+history 
