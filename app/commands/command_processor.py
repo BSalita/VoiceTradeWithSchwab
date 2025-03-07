@@ -101,6 +101,8 @@ class CommandProcessor:
             return self._execute_order_command(command_data)
         elif command_type == 'quote':
             return self._execute_quote_command(command_data)
+        elif command_type == 'watch':
+            return self._execute_watch_command(command_data)
         elif command_type == 'cancel':
             return self._execute_cancel_command(command_data)
         elif command_type == 'status':
@@ -152,12 +154,23 @@ class CommandProcessor:
         """
         Parse a command into a command type and command data
         
+        This method supports both structured commands with explicit parameters
+        and natural language commands using conversational patterns. For watch commands,
+        it can process variations like:
+        - "watch AAPL MSFT" (basic form)
+        - "watch the price of AAPL" (with articles)
+        - "monitor TSLA every 2 seconds" (with frequency)
+        - "track AAPL and MSFT for 10 seconds" (with multiple symbols and duration)
+        
         Args:
             command_text (str): Command text
             
         Returns:
             Tuple[str, Dict[str, Any]]: Command type and command data
         """
+        # Store the original command text for natural language processing
+        self._last_command_text = command_text
+        
         # Check for help command
         help_match = re.search(r'^help$|^(?:show|get)\s+(?:commands|help)$', command_text, re.IGNORECASE)
         if help_match:
@@ -195,6 +208,47 @@ class CommandProcessor:
             symbol = quote_match.group(1)
             self.logger.debug(f"Quote command matched: symbol={symbol}")
             return 'quote', {'symbol': symbol.upper()}
+        
+        # Check for watch command with natural language - more comprehensive pattern
+        watch_match = re.search(
+            r'^(?:watch|monitor|track)\b'  # Start with watch, monitor, or track
+            r'|^(?:watch|monitor|track)\s+(?:the\s+)?(?:price|prices?|quotes?|stocks?|symbols?)'  # Common watch phrases
+            r'|^(?:watch|monitor|track)\s+[A-Z]{1,5}'  # Direct symbol after command
+            r'|(?:watch|monitor|track)\s+(?:the\s+)?(?:price|prices?|quotes?)\s+(?:of|for)',  # More complex phrases
+            command_text, 
+            re.IGNORECASE
+        )
+        
+        if watch_match:
+            # Extract symbols - look for uppercase 1-5 letter words
+            symbols = []
+            potential_symbols = re.findall(r'\b([A-Z]{1,5})\b', command_text)
+            
+            # Filter out common words that might be in all caps
+            common_words = ['THE', 'OF', 'AND', 'FOR', 'TO', 'IN', 'ON', 'BY', 'AT', 'FROM']
+            symbols = [sym for sym in potential_symbols if sym not in common_words]
+            
+            # Create watch command data
+            watch_data = {'symbols': symbols} if symbols else {}
+            
+            # Extract duration if specified
+            duration_match = re.search(r'for\s+(\d+)\s+seconds?', command_text.lower())
+            if duration_match:
+                watch_data['duration'] = int(duration_match.group(1))
+                
+            # Extract frequency if specified
+            frequency_match = re.search(r'(?:every|each)\s+(\d+(?:\.\d+)?)\s+seconds?', command_text.lower())
+            if frequency_match:
+                watch_data['frequency'] = float(frequency_match.group(1))
+                
+            # Extract format if specified
+            if re.search(r'\bsimple\s+format\b|\bformat\s*=\s*simple\b', command_text.lower()):
+                watch_data['format'] = 'simple'
+            elif re.search(r'\btable\s+format\b|\bformat\s*=\s*table\b', command_text.lower()):
+                watch_data['format'] = 'table'
+                
+            self.logger.debug(f"Watch command matched: {watch_data}")
+            return 'watch', watch_data
         
         # Check for cancel order command
         cancel_order_match = re.search(r'cancel\s+order\s+(\w+)', command_text, re.IGNORECASE)
@@ -263,9 +317,95 @@ class CommandProcessor:
         strategies_match = re.search(r'(?:list|show|get)\s+(?:my\s+)?strategies', command_text, re.IGNORECASE) or command_text.lower() == 'strategies'
         if strategies_match:
             return 'strategies', {}
-        
-        # If no command matched, return None
-        self.logger.error(f"Invalid command format: Could not parse command: {command_text}")
+            
+        # Check for watch command
+        watch_match = re.search(r'^watch\s+([\w\s,]+)(?:\s+frequency=(\d+\.?\d*))?(?:\s+duration=(\d+))?(?:\s+format=(table|simple))?$', command_text, re.IGNORECASE)
+        if watch_match:
+            # Parse the symbols - can be comma-separated or space-separated
+            symbol_text = watch_match.group(1).strip()
+            if ',' in symbol_text:
+                symbols = [s.strip() for s in symbol_text.split(',')]
+            else:
+                symbols = symbol_text.split()
+                
+            # Parse other parameters
+            frequency = watch_match.group(2)
+            if frequency:
+                try:
+                    frequency = float(frequency)
+                except ValueError:
+                    frequency = 1.0
+            else:
+                frequency = 1.0
+                
+            duration = watch_match.group(3)
+            if duration:
+                try:
+                    duration = int(duration)
+                except ValueError:
+                    duration = 10
+            else:
+                duration = 10
+                
+            display_format = watch_match.group(4)
+            if not display_format:
+                display_format = 'table'
+                
+            return 'watch', {
+                'symbols': symbols,
+                'frequency': frequency,
+                'duration': duration,
+                'format': display_format.lower()
+            }
+            
+        # Check for an alternative natural language watch command
+        watch_nl_match = re.search(r'(?:watch|monitor|track)\s+(?:the\s+)?(?:price|quotes?)\s+(?:of|for)\s+([\w\s,]+)(?:\s+(?:for|every)\s+(\d+\.?\d*)\s+seconds?)?(?:\s+(?:for|up to)\s+(\d+)\s+seconds?)?', command_text, re.IGNORECASE)
+        if watch_nl_match:
+            # Parse the symbols - can be comma-separated or space-separated
+            symbol_text = watch_nl_match.group(1).strip()
+            if ',' in symbol_text:
+                symbols = [s.strip() for s in symbol_text.split(',')]
+            else:
+                # Try to identify symbols in natural language
+                possible_symbols = []
+                for word in symbol_text.split():
+                    # If it's all uppercase or could be a symbol, add it
+                    if word.isupper() or (word.isalpha() and len(word) <= 5):
+                        possible_symbols.append(word.upper())
+                
+                if possible_symbols:
+                    symbols = possible_symbols
+                else:
+                    # Fall back to treating all words as symbols
+                    symbols = [s.upper() for s in symbol_text.split()]
+                
+            # Parse other parameters
+            frequency = watch_nl_match.group(2)
+            if frequency:
+                try:
+                    frequency = float(frequency)
+                except ValueError:
+                    frequency = 1.0
+            else:
+                frequency = 1.0
+                
+            duration = watch_nl_match.group(3)
+            if duration:
+                try:
+                    duration = int(duration)
+                except ValueError:
+                    duration = 10
+            else:
+                duration = 10
+                
+            return 'watch', {
+                'symbols': symbols,
+                'frequency': frequency,
+                'duration': duration,
+                'format': 'table'
+            }
+            
+        # If no command was matched
         return None, {}
     
     def _execute_basic_order(self, side: str, **kwargs) -> Dict[str, Any]:
@@ -580,6 +720,10 @@ class CommandProcessor:
                 help_text += f"  - {example}\n"
             help_text += "\n"
             
+        help_text += "\n- Quote: \"quote SYMBOL\"\n"
+        help_text += "- Quotes: \"quotes SYMBOL1 SYMBOL2 SYMBOL3\"\n"
+        help_text += "- Watch: \"watch SYMBOL1 SYMBOL2 [frequency=1] [duration=10] [format=table]\"\n"
+        
         return help_text
     
     def _extract_order_details(self, command_text: str) -> Dict[str, Any]:
@@ -2155,3 +2299,221 @@ Available commands:
                 error=str(e),
                 message="Failed to compare strategies"
             )
+
+    def _execute_watch_command(self, command_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Execute a watch command to continuously display market data updates for specified symbols
+        
+        Args:
+            command_data: Watch details from parsed command including:
+                - symbols: List of symbols to watch
+                - frequency: Update frequency in seconds (default: 1)
+                - duration: Total duration to watch in seconds (default: 10)
+                - format: Display format (default: 'table')
+                
+        Returns:
+            Dict[str, Any]: Watch result
+        """
+        logger.info(f"Executing watch command: {command_data}")
+        
+        from ..services import get_service
+        from rich.console import Console
+        from rich.table import Table
+        from rich.text import Text
+        import time
+        
+        # Get market data service
+        market_data_service = get_service("market_data")
+        if not market_data_service:
+            return {
+                'success': False,
+                'error': "Market data service not available"
+            }
+        
+        # Extract parameters
+        symbols = command_data.get('symbols', [])
+        
+        # If no symbols found in the data structure, try to find them in the command keys
+        if not symbols:
+            for key in command_data:
+                if isinstance(key, str) and key.isupper() and 1 <= len(key) <= 5 and key.isalpha():
+                    symbols.append(key)
+        
+        if not symbols:
+            return {
+                'success': False,
+                'error': "No symbols specified to watch"
+            }
+            
+        # Convert to uppercase
+        symbols = [s.upper() for s in symbols]
+            
+        # Get other parameters with defaults
+        frequency = command_data.get('frequency', 1)
+        duration = command_data.get('duration', 10)
+        display_format = command_data.get('format', 'table')
+        
+        # Validate parameters
+        try:
+            frequency = float(frequency)
+            if frequency < 0.1:
+                frequency = 0.1  # Minimum 100ms refresh
+        except (ValueError, TypeError):
+            frequency = 1.0
+            
+        try:
+            duration = int(duration)
+            if duration < 1:
+                duration = 1  # Minimum 1 second
+        except (ValueError, TypeError):
+            duration = 10
+        
+        # Initialize tracking of price changes
+        prev_prices = {}
+        
+        # Initialize console and start time
+        console = Console()
+        start_time = time.time()
+        end_time = start_time + duration
+        
+        # Initialize result data
+        result_data = {
+            'success': True,
+            'symbols': symbols,
+            'frequency': frequency,
+            'duration': duration,
+            'updates': []
+        }
+        
+        try:
+            # Main watch loop
+            while time.time() < end_time:
+                # Get quotes for all symbols
+                quotes_result = {}
+                price_changes = {}
+                
+                for symbol in symbols:
+                    quote_result = market_data_service.get_quote(symbol)
+                    if quote_result.get('success', False):
+                        quote_data = quote_result.get('quote', {})
+                        
+                        # Extract relevant data
+                        last_price = quote_data.get('lastPrice', quote_data.get('last', 0))
+                        bid_price = quote_data.get('bid', 0)
+                        ask_price = quote_data.get('ask', 0)
+                        
+                        # Calculate change from previous update
+                        prev_price = prev_prices.get(symbol, last_price)
+                        price_change = last_price - prev_price
+                        price_change_pct = (price_change / prev_price) * 100 if prev_price else 0
+                        
+                        # Store current price for next comparison
+                        prev_prices[symbol] = last_price
+                        
+                        # Add to results
+                        quotes_result[symbol] = {
+                            'last': last_price,
+                            'bid': bid_price,
+                            'ask': ask_price,
+                            'change': price_change,
+                            'change_pct': price_change_pct
+                        }
+                        
+                        price_changes[symbol] = price_change
+                    else:
+                        quotes_result[symbol] = {
+                            'error': quote_result.get('error', f"Failed to get quote for {symbol}")
+                        }
+                
+                # Store update for the result
+                result_data['updates'].append({
+                    'timestamp': time.time(),
+                    'quotes': quotes_result
+                })
+                
+                # Display the data based on selected format
+                console.clear()
+                console.print(f"[bold]Market Watch[/bold] - Updating every {frequency}s - Press Ctrl+C to stop")
+                console.print(f"Time remaining: {int(end_time - time.time())}s")
+                
+                if display_format == 'table':
+                    table = Table(show_header=True, header_style="bold")
+                    table.add_column("Symbol")
+                    table.add_column("Last Price")
+                    table.add_column("Bid")
+                    table.add_column("Ask")
+                    table.add_column("Change")
+                    
+                    for symbol, data in quotes_result.items():
+                        if 'error' in data:
+                            table.add_row(
+                                symbol, 
+                                "Error", 
+                                "", 
+                                "", 
+                                data['error']
+                            )
+                        else:
+                            # Format the change with color
+                            change = data['change']
+                            change_text = f"{change:.2f} ({data['change_pct']:.2f}%)"
+                            
+                            if change > 0:
+                                change_formatted = Text(change_text, style="green")
+                            elif change < 0:
+                                change_formatted = Text(change_text, style="red")
+                            else:
+                                change_formatted = Text(change_text)
+                                
+                            table.add_row(
+                                symbol,
+                                f"${data['last']:.2f}",
+                                f"${data['bid']:.2f}",
+                                f"${data['ask']:.2f}",
+                                change_formatted
+                            )
+                    
+                    console.print(table)
+                else:
+                    # Simple format
+                    for symbol, data in quotes_result.items():
+                        if 'error' in data:
+                            console.print(f"{symbol}: Error - {data['error']}")
+                        else:
+                            change = data['change']
+                            change_text = f"{change:.2f} ({data['change_pct']:.2f}%)"
+                            
+                            if change > 0:
+                                change_color = "green"
+                            elif change < 0:
+                                change_color = "red"
+                            else:
+                                change_color = "white"
+                                
+                            console.print(
+                                f"{symbol}: ${data['last']:.2f} | Bid: ${data['bid']:.2f} | Ask: ${data['ask']:.2f} | "
+                                f"Change: [{change_color}]{change_text}[/{change_color}]"
+                            )
+                
+                # Wait for next update
+                time.sleep(frequency)
+                
+            return {
+                'success': True,
+                'message': f"Watched {len(symbols)} symbols for {duration} seconds",
+                **result_data
+            }
+        
+        except KeyboardInterrupt:
+            return {
+                'success': True,
+                'message': "Watch command terminated by user",
+                **result_data
+            }
+        except Exception as e:
+            logger.error(f"Error executing watch command: {str(e)}")
+            return {
+                'success': False,
+                'error': f"Failed to execute watch command: {str(e)}",
+                **result_data
+            }

@@ -107,6 +107,13 @@ def setup_command_line():
         help="Select Whisper model size (default: base)"
     )
     
+    # Add a positional argument for direct command execution
+    parser.add_argument(
+        "command",
+        nargs="*",
+        help="Command to execute directly (if no other interface option is specified)"
+    )
+    
     return parser.parse_args()
 
 def display_welcome():
@@ -196,6 +203,21 @@ def main():
         use_text = args.text
         use_web = args.web
         command_file = args.file
+        direct_command = args.command
+        
+        # Handle direct command execution (highest priority)
+        if direct_command:
+            command_string = " ".join(direct_command)
+            console.print(f"[bold]Executing command: {command_string}[/bold]")
+            
+            # Use the TextCommandHandler like the file method does
+            text_handler = TextCommandHandler()
+            
+            # Process the command directly - this will handle natural language the same way
+            # that processing a file would
+            text_handler.process_command(command_string)
+            
+            return 0
         
         # Default to text if no interface specified
         if not (use_voice or use_text or use_web) and not command_file:

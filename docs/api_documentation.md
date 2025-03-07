@@ -93,6 +93,133 @@ quotes = client.get_quotes(["AAPL", "MSFT", "GOOG"])
 **Returns:**
 - Dictionary mapping symbols to their quote data
 
+#### Watch Market Data
+
+Stream real-time market data for specified symbols.
+
+#### Command Line Usage
+
+The watch endpoint can be accessed directly from the command line in various formats:
+
+```bash
+# Standard format
+python main.py "watch AAPL MSFT frequency=2 duration=10"
+
+# Natural language format
+python main.py "watch the price of AAPL and MSFT for 10 seconds"
+python main.py "monitor TSLA every 2 seconds"
+python main.py "track quotes for SPY, QQQ in simple format"
+```
+
+#### API Endpoint
+
+```
+GET /api/market/watch
+```
+
+#### Query Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `symbols` | string | Comma-separated list of symbols to watch |
+| `frequency` | number | Update frequency in seconds (default: 1) |
+| `duration` | number | Total duration to watch in seconds (default: 10) |
+| `format` | string | Response format: 'json' or 'event-stream' (default: 'json') |
+
+#### Response (JSON format)
+
+```json
+{
+  "success": true,
+  "message": "Started watching AAPL, MSFT",
+  "watch_id": "watch_20230707123456",
+  "symbols": ["AAPL", "MSFT"],
+  "frequency": 1,
+  "duration": 10,
+  "updates": [
+    {
+      "timestamp": "2023-07-07T12:34:56Z",
+      "quotes": {
+        "AAPL": {
+          "last": 150.45,
+          "bid": 150.40,
+          "ask": 150.50,
+          "change": 0.25,
+          "change_pct": 0.17
+        },
+        "MSFT": {
+          "last": 335.20,
+          "bid": 335.15,
+          "ask": 335.25,
+          "change": -0.30,
+          "change_pct": -0.09
+        }
+      }
+    },
+    {
+      "timestamp": "2023-07-07T12:34:57Z",
+      "quotes": {
+        "AAPL": {
+          "last": 150.50,
+          "bid": 150.45,
+          "ask": 150.55,
+          "change": 0.05,
+          "change_pct": 0.03
+        },
+        "MSFT": {
+          "last": 335.25,
+          "bid": 335.20,
+          "ask": 335.30,
+          "change": 0.05,
+          "change_pct": 0.01
+        }
+      }
+    }
+  ]
+}
+```
+
+#### Response (Server-Sent Events format)
+
+When using `format=event-stream`, the endpoint returns a stream of server-sent events:
+
+```
+event: watch_start
+data: {"watch_id":"watch_20230707123456","symbols":["AAPL","MSFT"],"frequency":1,"duration":10}
+
+event: quote_update
+data: {"timestamp":"2023-07-07T12:34:56Z","quotes":{"AAPL":{"last":150.45,"bid":150.40,"ask":150.50,"change":0.25,"change_pct":0.17},"MSFT":{"last":335.20,"bid":335.15,"ask":335.25,"change":-0.30,"change_pct":-0.09}}}
+
+event: quote_update
+data: {"timestamp":"2023-07-07T12:34:57Z","quotes":{"AAPL":{"last":150.50,"bid":150.45,"ask":150.55,"change":0.05,"change_pct":0.03},"MSFT":{"last":335.25,"bid":335.20,"ask":335.30,"change":0.05,"change_pct":0.01}}}
+
+event: watch_end
+data: {"message":"Watch completed","watch_id":"watch_20230707123456","duration":10,"updates":10}
+```
+
+You can consume these events in JavaScript with:
+
+```javascript
+const eventSource = new EventSource('/api/market/watch?symbols=AAPL,MSFT&format=event-stream');
+
+eventSource.addEventListener('watch_start', (event) => {
+  const data = JSON.parse(event.data);
+  console.log('Watch started:', data);
+});
+
+eventSource.addEventListener('quote_update', (event) => {
+  const data = JSON.parse(event.data);
+  console.log('Quote update:', data);
+  // Update UI with new quotes
+});
+
+eventSource.addEventListener('watch_end', (event) => {
+  const data = JSON.parse(event.data);
+  console.log('Watch ended:', data);
+  eventSource.close();
+});
+```
+
 ### Trading Methods
 
 #### Place Order

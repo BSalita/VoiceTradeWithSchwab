@@ -282,6 +282,44 @@ Example:
 quotes AAPL MSFT GOOG
 ```
 
+#### Watch Real-Time Quotes
+
+Monitor real-time quotes for one or more symbols with continuous updates.
+
+```
+watch SYMBOL1 SYMBOL2 [frequency=1] [duration=10] [format=table|simple]
+```
+
+Parameters:
+- `frequency`: Update interval in seconds (default: 1)
+- `duration`: Total duration to watch in seconds (default: 10)
+- `format`: Display format - either 'table' or 'simple' (default: table)
+
+Examples:
+```
+watch AAPL MSFT                           # Watch AAPL and MSFT with default settings
+watch AAPL,MSFT,GOOG frequency=2          # Watch multiple symbols updating every 2 seconds
+watch TSLA duration=60                    # Watch TSLA for 60 seconds
+watch SPY frequency=0.5 format=simple     # Watch SPY updating every 0.5 seconds in simple format
+```
+
+You can also use natural language commands:
+```
+watch the price of AAPL                   # Basic watch command
+watch quotes for AAPL, MSFT for 5 seconds # Watch for 5 seconds
+monitor the price of TSLA for 60 seconds  # Watch for 60 seconds
+track quotes for SPY every 2 seconds      # Update every 2 seconds
+watch AAPL and MSFT in simple format      # Use simple display format
+```
+
+The watch display shows:
+- Current price
+- Bid and ask prices
+- Price change since last update (in green for increases, red for decreases)
+- Time remaining before the watch terminates
+
+Press Ctrl+C at any time to stop watching.
+
 #### Historical Data
 
 ```

@@ -412,4 +412,20 @@ def test_execute_with_price_target_reached(self):
         
         # Verify the file was NOT saved since strategy terminated early
         mock_save.assert_not_called()
-``` 
+```
+
+## Testing Command Processing
+
+When testing command processing, include tests for:
+
+- **Direct Commands**: Test basic command formats with explicit parameters
+- **Natural Language Commands**: Test conversational command formats
+  - For watch commands, test variations like:
+    - "watch AAPL" (basic form)
+    - "watch the price of AAPL" (with articles)
+    - "monitor TSLA every 2 seconds" (with frequency)
+    - "track AAPL and MSFT for 10 seconds" (with multiple symbols and duration)
+    - "watch the prices of AAPL, MSFT, GOOG in simple format" (with format specification)
+  - Verify that common words in all-caps are not mistakenly identified as symbols
+  - Verify that parameters like duration and frequency are correctly extracted
+- **Edge Cases**: Test boundary values, invalid inputs, and recovery from errors 
