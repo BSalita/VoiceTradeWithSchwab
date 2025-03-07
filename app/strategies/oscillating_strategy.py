@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 
 from ..models.order import TradingSession, OrderDuration
 from .base_strategy import BaseStrategy
+from ..services.service_registry import ServiceRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -61,10 +62,19 @@ class OscillatingStrategy(BaseStrategy):
     - Uses FIFO (first in, first out) for selling positions
     """
     
-    def __init__(self):
+    def __init__(self, symbol=None, quantity=None, upper_limit=None, lower_limit=None, step_size=None, **kwargs):
         """Initialize the oscillating strategy"""
         super().__init__()
-        self.config = None
+        self.config = {
+            "symbol": symbol, 
+            "quantity": quantity,
+            "upper_limit": upper_limit,
+            "lower_limit": lower_limit,
+            "step_size": step_size
+        }
+        # Add any additional kwargs to config
+        self.config.update(kwargs)
+        
         self.lock = threading.Lock()
         self.active_positions = []
         self.last_trade_time = None
@@ -139,35 +149,29 @@ class OscillatingStrategy(BaseStrategy):
             **kwargs: Strategy parameters matching OscillatingStrategyConfig fields
                 symbol (str): Stock symbol to trade
                 quantity (int): Number of shares per trade
-                initial_price (float, optional): Starting price for calculating thresholds
-                price_range (float, optional): Range percentage (0.01 = 1%) or fixed amount
-                is_percentage (bool, optional): True to use percentage, False for fixed amount
-                use_normal_dist (bool, optional): True to use normal distribution randomization
-                std_dev (float, optional): Standard deviation for normal distribution
-                min_trade_interval (int, optional): Seconds between trades
-                max_positions (int, optional): Maximum number of open positions
-                session (str, optional): Trading session (REGULAR, EXTENDED)
-                duration (str, optional): Order duration (DAY, GTC)
+                initial_price (float, optional): Starting price for calculations
+                price_range (float, optional): Price movement range
+                is_percentage (bool, optional): Whether price_range is percentage or fixed
+                min_trade_interval (int, optional): Minimum seconds between trades
+                max_positions (int, optional): Maximum number of concurrent positions
                 
         Returns:
-            Dict[str, Any]: Result of strategy execution with success/error information
+            Dict[str, Any]: Execution result with success flag and details
         """
         try:
-            # Update configuration with kwargs
-            if kwargs:
-                self.configure(**kwargs)
-                
-            # Validate configuration
+            # Configure the strategy with provided parameters
+            self.configure(**kwargs)
+            
+            # Validate parameters to make sure we have what we need
             validation = self.validate_config()
             if not validation.get("success", False):
                 return validation
             
-            # Use configuration for execution parameters
+            # Get required parameters
             symbol = self.config.get("symbol")
             quantity = int(self.config.get("quantity", 0))
             initial_price = self.config.get("initial_price")
             
-            # Log strategy parameters
             logger.info(f"Executing oscillating strategy for {symbol} with {quantity} shares")
             
             # Get current price if not provided
@@ -183,6 +187,12 @@ class OscillatingStrategy(BaseStrategy):
             
             # Start the strategy
             success = self.start()
+            
+            # For testing - place an initial buy order right away
+            if 'test' in kwargs and kwargs['test'] is True:
+                # This is just for testing to avoid needing price stream
+                logger.info("Test mode: executing immediate buy for testing")
+                self._execute_buy(initial_price)
             
             return {
                 "success": success,
@@ -210,29 +220,25 @@ class OscillatingStrategy(BaseStrategy):
         Start the oscillating strategy
         
         Returns:
-            bool: True if started successfully
+            bool: True if started successfully, False otherwise
         """
+        if self.is_running:
+            logger.warning("Strategy is already running")
+            return True
+            
         try:
-            with self.lock:
-                if self.is_running:
-                    logger.warning("Oscillating strategy is already running")
-                    return True
-                
-                # Set strategy state
-                self.is_running = True
-                self.strategy_start_time = datetime.now()
-                
-                # Start price streaming
-                logger.info(f"Starting price stream for {self.config.symbol}")
-                self.api_client.start_price_stream([self.config.symbol])
-                self.api_client.register_price_callback(self.config.symbol, self._on_price_update)
-                
-                logger.info(f"Oscillating strategy started for {self.config.symbol}")
-                return True
-                
+            # Start price streaming
+            logger.info(f"Starting price stream for {self.config.get('symbol')}")
+            self.api_client.start_price_stream([self.config.get('symbol')])
+            self.api_client.register_price_callback(self.config.get('symbol'), self._on_price_update)
+            
+            self.is_running = True
+            self.strategy_start_time = time.time()
+            logger.info(f"Oscillating strategy started for {self.config.get('symbol')}")
+            return True
+            
         except Exception as e:
             logger.error(f"Error starting oscillating strategy: {str(e)}")
-            self.is_running = False
             return False
     
     def stop(self) -> bool:
@@ -249,12 +255,12 @@ class OscillatingStrategy(BaseStrategy):
                     return True
                 
                 # Stop price streaming
-                logger.info(f"Stopping price stream for {self.config.symbol}")
+                logger.info(f"Stopping price stream for {self.config.get('symbol')}")
                 self.api_client.stop_price_stream()
                 
                 # Update state
                 self.is_running = False
-                logger.info(f"Oscillating strategy stopped for {self.config.symbol}")
+                logger.info(f"Oscillating strategy stopped for {self.config.get('symbol')}")
                 return True
                 
         except Exception as e:
@@ -263,34 +269,35 @@ class OscillatingStrategy(BaseStrategy):
     
     def get_status(self) -> Dict[str, Any]:
         """
-        Get the current status of the oscillating strategy
+        Get the current status of the strategy
         
         Returns:
-            Dict[str, Any]: Strategy status
+            Dict[str, Any]: Status information
         """
         with self.lock:
-            base_status = super().get_status()
-            
             if not self.is_running or not self.config:
-                return base_status
+                return {
+                    "running": False,
+                    "message": "Strategy not running"
+                }
+                
+            # Calculate runtime
+            runtime = time.time() - self.strategy_start_time
             
-            # Add strategy-specific status
-            runtime = None
-            if self.strategy_start_time:
-                runtime = str(datetime.now() - self.strategy_start_time)
+            # Base status from parent class
+            base_status = super().get_status()
             
             return {
                 **base_status,
-                "symbol": self.config.symbol,
-                "initialPrice": self.config.initial_price,
+                "symbol": self.config.get("symbol"),
+                "initialPrice": self.config.get("initial_price"),
                 "currentPositions": len(self.active_positions),
-                "maxPositions": self.config.max_positions,
+                "maxPositions": self.config.get("max_positions", 3),
                 "buyThreshold": self.buy_threshold,
                 "sellThreshold": self.sell_threshold,
-                "lastTradeTime": self.last_trade_time,
                 "runningTime": runtime,
-                "session": self.config.session,
-                "duration": self.config.duration
+                "session": self.config.get("session", "REGULAR"),
+                "duration": self.config.get("duration", "DAY")
             }
     
     def _calculate_thresholds(self, current_price: float) -> None:
@@ -300,16 +307,16 @@ class OscillatingStrategy(BaseStrategy):
         Args:
             current_price (float): Current price to base thresholds on
         """
-        if self.config.is_percentage:
+        if self.config.get("is_percentage", False):
             # Calculate thresholds as percentage of current price
-            range_amount = current_price * self.config.price_range
+            range_amount = current_price * self.config.get("price_range", 0.01)
         else:
             # Use fixed dollar amount
-            range_amount = self.config.price_range
+            range_amount = self.config.get("price_range", 0.5)
         
-        if self.config.use_normal_dist:
+        if self.config.get("use_normal_dist", False):
             # Use normal distribution to randomize thresholds
-            range_factor = np.random.normal(0, self.config.std_dev)
+            range_factor = np.random.normal(0, self.config.get("std_dev", 0.5))
             adjusted_range = range_amount * (0.5 + 0.5 * range_factor)
             
             # Ensure range doesn't go negative
@@ -322,178 +329,142 @@ class OscillatingStrategy(BaseStrategy):
         
         logger.debug(f"Thresholds calculated - Buy: {self.buy_threshold}, Sell: {self.sell_threshold}")
     
-    def _on_price_update(self, price_data: Dict[str, Any]) -> None:
+    def _on_price_update(self, symbol: str, price: float) -> None:
         """
         Handle price updates from the streaming API
         
         Args:
-            price_data (Dict[str, Any]): Price update data
+            symbol (str): Stock symbol
+            price (float): Current price
         """
         try:
             if not self.is_running:
                 return
                 
             with self.lock:
-                # Extract price and validate
-                current_price = float(price_data.get('price', 0))
-                if current_price <= 0:
-                    logger.warning(f"Invalid price received for {self.config.get('symbol')}: {price_data}")
+                # Make sure this is for our configured symbol
+                if symbol.upper() != self.config.get('symbol', '').upper():
                     return
+                    
+                logger.debug(f"Price update for {symbol}: {price}")
                 
-                logger.debug(f"Price update for {self.config.get('symbol')}: {current_price}")
-                
-                # Check if we can trade (based on time interval)
-                current_time = datetime.now()
-                min_interval = self.config.get('min_trade_interval', 60)
-                
+                # Check trade interval requirement
                 if self.last_trade_time:
-                    time_since_last_trade = (current_time - self.last_trade_time).total_seconds()
-                    if time_since_last_trade < min_interval:
-                        remaining = min_interval - time_since_last_trade
-                        logger.debug(f"Trade cooldown: {remaining:.1f}s remaining until next trade")
+                    elapsed = time.time() - self.last_trade_time
+                    min_interval = self.config.get('min_trade_interval', 60)
+                    if elapsed < min_interval:
+                        # Not enough time passed since last trade
                         return
                 
-                # Check position count
-                max_positions = self.config.get('max_positions', 3)
-                current_positions = len(self.active_positions)
-                
-                # Check for buy opportunity
-                if current_price <= self.buy_threshold and current_positions < max_positions:
-                    logger.info(f"Buy signal triggered: Price {current_price} <= threshold {self.buy_threshold}")
-                    logger.info(f"Current positions: {current_positions}, Max: {max_positions}")
-                    self._execute_buy(current_price)
-                    return
-                
-                # Check for sell opportunity if we have positions
-                if current_price >= self.sell_threshold and self.active_positions:
-                    logger.info(f"Sell signal triggered: Price {current_price} >= threshold {self.sell_threshold}")
-                    logger.info(f"Active positions: {len(self.active_positions)}")
-                    self._execute_sell(current_price)
-                    return
-                
-                # Log threshold distances for monitoring
-                if current_positions < max_positions:
-                    buy_distance = ((current_price / self.buy_threshold) - 1) * 100
-                    logger.debug(f"Distance to buy: {buy_distance:.2f}% (Current: {current_price}, Threshold: {self.buy_threshold})")
-                
-                if self.active_positions:
-                    sell_distance = ((self.sell_threshold / current_price) - 1) * 100
-                    logger.debug(f"Distance to sell: {sell_distance:.2f}% (Current: {current_price}, Threshold: {self.sell_threshold})")
-                
-        except ValueError as e:
-            logger.error(f"Value error in price update: {str(e)}")
-        except TypeError as e:
-            logger.error(f"Type error in price update: {str(e)}")
-        except KeyError as e:
-            logger.error(f"Missing key in price data: {str(e)}")
+                # Check thresholds for action
+                if price <= self.buy_threshold:
+                    # If we have not reached max positions allowed, buy
+                    max_positions = self.config.get('max_positions', 3)
+                    if len(self.active_positions) < max_positions:
+                        self._execute_buy(price)
+                    else:
+                        logger.debug(f"Buy signal at {price} ignored - max positions ({max_positions}) reached")
+                        
+                elif price >= self.sell_threshold:
+                    # If we have positions to sell, sell one
+                    if self.active_positions:
+                        self._execute_sell(price)
+                    else:
+                        logger.debug(f"Sell signal at {price} ignored - no positions to sell")
+                        
         except Exception as e:
-            logger.error(f"Unexpected error processing price update: {str(e)}")
+            logger.error(f"Error processing price update: {str(e)}")
     
     def _execute_buy(self, price: float) -> None:
         """
         Execute a buy order
         
         Args:
-            price (float): Current price
+            price (float): Current price to execute at
         """
-        try:
-            # Get session and duration (convert strings to enum values if needed)
-            session = self.config.session
-            if isinstance(session, str):
-                session = TradingSession(session).value
+        with self.lock:
+            # Get trading service
+            trading_service = ServiceRegistry.get("trading")
+            if not trading_service:
+                logger.error("Trading service not available")
+                return
                 
-            duration = self.config.duration
-            if isinstance(duration, str):
-                duration = OrderDuration(duration).value
-                
-            order_result = self.place_order(
-                symbol=self.config.symbol,
-                quantity=self.config.quantity,
-                order_type="MARKET",
+            # Get order parameters
+            session = self.config.get("session", "REGULAR")
+            duration = self.config.get("duration", "DAY")
+            
+            # Place the order
+            result = trading_service.place_order(
+                symbol=self.config.get("symbol"),
+                quantity=self.config.get("quantity", 1),
                 side="BUY",
+                order_type="MARKET",
+                price=None,  # Market order
                 session=session,
                 duration=duration,
-                strategy="oscillating"  # Add strategy name for history tracking
+                strategy="oscillating"
             )
             
-            # Record the trade
+            # Store the position
             position = {
-                'orderId': order_result.get('orderId', 'unknown'),
-                'buyPrice': price,
-                'quantity': self.config.quantity,
-                'buyTime': datetime.now()
+                'price': price,
+                'quantity': self.config.get("quantity", 1),
+                'time': time.time(),
+                'order_id': result.get('order_id')
             }
             
             self.active_positions.append(position)
-            self.last_trade_time = datetime.now()
+            self.last_trade_time = time.time()
             
-            # Recalculate thresholds for next trade
+            # Update thresholds for next trade
             self._calculate_thresholds(price)
             
-            logger.info(f"BUY executed for {self.config.symbol} at {price} - {self.config.quantity} shares")
-            
-        except ValueError as e:
-            logger.error(f"Value error executing buy: {str(e)}")
-        except AttributeError as e:
-            logger.error(f"Attribute error executing buy: {str(e)}")
-        except ConnectionError as e:
-            logger.error(f"Connection error executing buy: {str(e)}")
-        except Exception as e:
-            logger.error(f"Unexpected error executing buy: {str(e)}")
+            logger.info(f"BUY executed for {self.config.get('symbol')} at {price} - {self.config.get('quantity', 1)} shares")
     
     def _execute_sell(self, price: float) -> None:
         """
-        Execute a sell order (FIFO - oldest position first)
+        Execute a sell order
         
         Args:
-            price (float): Current price
+            price (float): Current price to execute at
         """
-        try:
+        with self.lock:
+            # Make sure we have a position to sell
             if not self.active_positions:
+                logger.warning("No active positions to sell")
                 return
                 
-            # Get oldest position (FIFO)
+            # Get the oldest position (FIFO)
             position = self.active_positions.pop(0)
             
-            # Get session and duration (convert strings to enum values if needed)
-            session = self.config.session
-            if isinstance(session, str):
-                session = TradingSession(session).value
+            # Get trading service
+            trading_service = ServiceRegistry.get("trading")
+            if not trading_service:
+                logger.error("Trading service not available")
+                # Put the position back
+                self.active_positions.insert(0, position)
+                return
                 
-            duration = self.config.duration
-            if isinstance(duration, str):
-                duration = OrderDuration(duration).value
+            # Get order parameters
+            session = self.config.get("session", "REGULAR")
+            duration = self.config.get("duration", "DAY")
             
-            order_result = self.place_order(
-                symbol=self.config.symbol,
-                quantity=position['quantity'],
-                order_type="MARKET",
+            # Place the sell order
+            result = trading_service.place_order(
+                symbol=self.config.get("symbol"),
+                quantity=position.get("quantity", 1),
                 side="SELL",
+                order_type="MARKET",
+                price=None,  # Market order
                 session=session,
                 duration=duration,
-                strategy="oscillating"  # Add strategy name for history tracking
+                strategy="oscillating"
             )
             
-            # Calculate profit/loss
-            buy_price = position['buyPrice']
-            profit = (price - buy_price) * position['quantity']
-            profit_percent = ((price / buy_price) - 1) * 100
+            # Update state
+            self.last_trade_time = time.time()
             
-            self.last_trade_time = datetime.now()
-            
-            # Recalculate thresholds for next trade
+            # Update thresholds for next trade
             self._calculate_thresholds(price)
             
-            logger.info(f"SELL executed for {self.config.symbol} at {price} - {position['quantity']} shares")
-            logger.info(f"P/L: ${profit:.2f} ({profit_percent:.2f}%)")
-            
-        except ValueError as e:
-            logger.error(f"Value error executing sell: {str(e)}")
-        except KeyError as e:
-            logger.error(f"Missing key in position data: {str(e)}")
-        except AttributeError as e:
-            logger.error(f"Attribute error executing sell: {str(e)}")
-        except ConnectionError as e:
-            logger.error(f"Connection error executing sell: {str(e)}")
-        except Exception as e:
-            logger.error(f"Unexpected error executing sell: {str(e)}") 
+            logger.info(f"SELL executed for {self.config.get('symbol')} at {price} - {position.get('quantity', 1)} shares") 

@@ -19,6 +19,14 @@ This document provides comprehensive documentation for both the Schwab API clien
   - [Account Endpoints](#account-endpoints)
   - [Error Responses](#error-responses)
 - [WebSocket API](#websocket-api)
+- [API Endpoints](#api-endpoints)
+  - [Health](#health)
+  - [Account](#account)
+  - [Orders](#orders)
+  - [Quotes](#quotes)
+  - [Strategies](#strategies)
+  - [History](#history)
+  - [Backtesting](#backtesting)
 
 ## Schwab API Client
 
@@ -524,5 +532,420 @@ Order updates are delivered as:
     "filled_price": 150.25,
     "filled_quantity": 10
   }
+}
+```
+
+## API Endpoints
+
+- [Health](#health)
+- [Account](#account)
+- [Orders](#orders)
+- [Quotes](#quotes)
+- [Strategies](#strategies)
+- [History](#history)
+- [Backtesting](#backtesting)
+
+## Backtesting
+
+### Run a Backtest
+
+```
+POST /api/backtest
+```
+
+Run a backtest for a trading strategy.
+
+#### Request Body
+
+```json
+{
+  "strategy_name": "ladder",
+  "symbol": "AAPL",
+  "start_date": "2023-01-01",
+  "end_date": "2023-06-30",
+  "initial_capital": 10000.0,
+  "trading_session": "REGULAR",
+  "strategy_params": {
+    "steps": 5,
+    "start_price": 150.0,
+    "end_price": 160.0
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `strategy_name` | string | Name of the strategy to backtest |
+| `symbol` | string | Stock symbol to backtest |
+| `start_date` | string | Start date in YYYY-MM-DD format |
+| `end_date` | string | End date in YYYY-MM-DD format |
+| `initial_capital` | number | Initial capital for the backtest (default: 10000.0) |
+| `trading_session` | string | Trading session: "REGULAR" or "EXTENDED" |
+| `strategy_params` | object | Additional parameters for the strategy |
+
+#### Response
+
+```json
+{
+  "success": true,
+  "message": "Backtest for ladder on AAPL completed successfully",
+  "backtest_id": "ladder_AAPL_20230101_20230630_20230707123456",
+  "summary": {
+    "backtest_id": "ladder_AAPL_20230101_20230630_20230707123456",
+    "strategy_name": "ladder",
+    "symbol": "AAPL",
+    "period": "2023-01-01 to 2023-06-30",
+    "initial_capital": 10000.0,
+    "final_capital": 12000.0,
+    "total_return": "20.00%",
+    "max_drawdown": "5.00%",
+    "sharpe_ratio": "1.50",
+    "win_rate": "60.00%",
+    "total_trades": 10
+  },
+  "metrics": {
+    "total_trades": 10,
+    "winning_trades": 6,
+    "losing_trades": 4,
+    "win_rate": "60.00%",
+    "average_win": "$500.00",
+    "average_loss": "$300.00",
+    "profit_factor": "2.00",
+    "average_trade": "$150.00"
+  },
+  "trades": [
+    {
+      "id": "backtest_order_0",
+      "symbol": "AAPL",
+      "side": "BUY",
+      "quantity": 10,
+      "price": 150.0,
+      "value": 1500.0,
+      "timestamp": "2023-01-02T10:00:00Z"
+    },
+    {
+      "id": "backtest_order_1",
+      "symbol": "AAPL",
+      "side": "SELL",
+      "quantity": 10,
+      "price": 160.0,
+      "value": 1600.0,
+      "timestamp": "2023-01-05T14:30:00Z"
+    }
+  ],
+  "equity_curve": [
+    {
+      "timestamp": "2023-01-01T00:00:00Z",
+      "portfolio_value": 10000.0,
+      "cash": 10000.0,
+      "position_value": 0.0,
+      "close_price": 150.0
+    },
+    {
+      "timestamp": "2023-01-02T00:00:00Z",
+      "portfolio_value": 10000.0,
+      "cash": 8500.0,
+      "position_value": 1500.0,
+      "close_price": 150.0
+    },
+    {
+      "timestamp": "2023-01-05T00:00:00Z",
+      "portfolio_value": 10100.0,
+      "cash": 10100.0,
+      "position_value": 0.0,
+      "close_price": 160.0
+    }
+  ]
+}
+```
+
+### Compare Strategies
+
+```
+POST /api/backtest/compare
+```
+
+Compare multiple strategies over the same time period.
+
+#### Request Body
+
+```json
+{
+  "strategies": ["ladder", "oto_ladder", "oscillating"],
+  "symbol": "MSFT",
+  "start_date": "2023-01-01",
+  "end_date": "2023-12-31",
+  "initial_capital": 10000.0,
+  "trading_session": "REGULAR",
+  "strategy_params": {
+    "ladder": {
+      "steps": 5,
+      "start_price": 250.0,
+      "end_price": 260.0
+    },
+    "oto_ladder": {
+      "start_price": 250.0,
+      "step": 5.0,
+      "initial_shares": 100,
+      "price_target": 280.0
+    },
+    "oscillating": {
+      "symbol": "MSFT",
+      "quantity": 10,
+      "price_range": 0.02,
+      "is_percentage": true,
+      "min_trade_interval": 60,
+      "max_positions": 3
+    },
+    "highlow": {
+      "symbol": "MSFT",
+      "quantity": 10,
+      "low_threshold": 140.0,
+      "high_threshold": 150.0
+    }
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `strategies` | array | List of strategy names to compare |
+| `symbol` | string | Stock symbol to backtest |
+| `start_date` | string | Start date in YYYY-MM-DD format |
+| `end_date` | string | End date in YYYY-MM-DD format |
+| `initial_capital` | number | Initial capital for each backtest (default: 10000.0) |
+| `trading_session` | string | Trading session: "REGULAR" or "EXTENDED" |
+| `strategy_params` | object | Parameters for each strategy, keyed by strategy name |
+
+#### Response
+
+```json
+{
+  "success": true,
+  "message": "Strategy comparison for MSFT completed successfully",
+  "backtest_period": {
+    "symbol": "MSFT",
+    "start_date": "2023-01-01",
+    "end_date": "2023-12-31",
+    "initial_capital": 10000.0,
+    "trading_session": "REGULAR"
+  },
+  "metrics_comparison": {
+    "ladder": {
+      "total_return": 20.0,
+      "max_drawdown": 5.0,
+      "sharpe_ratio": 1.5,
+      "win_rate": 60.0,
+      "profit_factor": 2.0,
+      "total_trades": 10
+    },
+    "oto_ladder": {
+      "total_return": 15.0,
+      "max_drawdown": 4.0,
+      "sharpe_ratio": 1.8,
+      "win_rate": 70.0,
+      "profit_factor": 2.5,
+      "total_trades": 20
+    },
+    "oscillating": {
+      "total_return": 18.0,
+      "max_drawdown": 6.0,
+      "sharpe_ratio": 1.2,
+      "win_rate": 55.0,
+      "profit_factor": 1.8,
+      "total_trades": 30
+    }
+  },
+  "metric_rankings": {
+    "total_return": {
+      "ladder": 1,
+      "oscillating": 2,
+      "oto_ladder": 3
+    },
+    "max_drawdown": {
+      "oto_ladder": 1,
+      "ladder": 2,
+      "oscillating": 3
+    },
+    "sharpe_ratio": {
+      "oto_ladder": 1,
+      "ladder": 2,
+      "oscillating": 3
+    },
+    "win_rate": {
+      "oto_ladder": 1,
+      "ladder": 2,
+      "oscillating": 3
+    },
+    "profit_factor": {
+      "oto_ladder": 1,
+      "ladder": 2,
+      "oscillating": 3
+    }
+  },
+  "overall_ranking": ["oto_ladder", "ladder", "oscillating"],
+  "best_strategy": "oto_ladder"
+}
+```
+
+### Get Backtest History
+
+```
+GET /api/backtest/history
+```
+
+Get backtest history, optionally filtered by strategy and/or symbol.
+
+#### Query Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `strategy` | string | Filter by strategy name (optional) |
+| `symbol` | string | Filter by symbol (optional) |
+
+#### Response
+
+```json
+{
+  "success": true,
+  "message": "Retrieved 2 backtests",
+  "backtests": [
+    {
+      "backtest_id": "ladder_AAPL_20230101_20230630_20230707123456",
+      "strategy_name": "ladder",
+      "symbol": "AAPL",
+      "period": "2023-01-01 to 2023-06-30",
+      "initial_capital": 10000.0,
+      "final_capital": 12000.0,
+      "total_return": "20.00%",
+      "max_drawdown": "5.00%",
+      "sharpe_ratio": "1.50",
+      "win_rate": "60.00%",
+      "total_trades": 10
+    },
+    {
+      "backtest_id": "oto_ladder_MSFT_20230101_20231231_20230707123456",
+      "strategy_name": "oto_ladder",
+      "symbol": "MSFT",
+      "period": "2023-01-01 to 2023-12-31",
+      "initial_capital": 10000.0,
+      "final_capital": 11500.0,
+      "total_return": "15.00%",
+      "max_drawdown": "4.00%",
+      "sharpe_ratio": "1.80",
+      "win_rate": "70.00%",
+      "total_trades": 20
+    }
+  ],
+  "count": 2
+}
+```
+
+### Get Backtest Result
+
+```
+GET /api/backtest/{backtest_id}
+```
+
+Get a specific backtest result.
+
+#### Path Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `backtest_id` | string | ID of the backtest |
+
+#### Response
+
+```json
+{
+  "success": true,
+  "message": "Retrieved backtest ladder_AAPL_20230101_20230630_20230707123456",
+  "backtest_id": "ladder_AAPL_20230101_20230630_20230707123456",
+  "summary": {
+    "backtest_id": "ladder_AAPL_20230101_20230630_20230707123456",
+    "strategy_name": "ladder",
+    "symbol": "AAPL",
+    "period": "2023-01-01 to 2023-06-30",
+    "initial_capital": 10000.0,
+    "final_capital": 12000.0,
+    "total_return": "20.00%",
+    "max_drawdown": "5.00%",
+    "sharpe_ratio": "1.50",
+    "win_rate": "60.00%",
+    "total_trades": 10
+  },
+  "metrics": {
+    "total_trades": 10,
+    "winning_trades": 6,
+    "losing_trades": 4,
+    "win_rate": "60.00%",
+    "average_win": "$500.00",
+    "average_loss": "$300.00",
+    "profit_factor": "2.00",
+    "average_trade": "$150.00"
+  },
+  "trades": [
+    {
+      "id": "backtest_order_0",
+      "symbol": "AAPL",
+      "side": "BUY",
+      "quantity": 10,
+      "price": 150.0,
+      "value": 1500.0,
+      "timestamp": "2023-01-02T10:00:00Z"
+    },
+    {
+      "id": "backtest_order_1",
+      "symbol": "AAPL",
+      "side": "SELL",
+      "quantity": 10,
+      "price": 160.0,
+      "value": 1600.0,
+      "timestamp": "2023-01-05T14:30:00Z"
+    }
+  ],
+  "equity_curve": [
+    {
+      "timestamp": "2023-01-01T00:00:00Z",
+      "portfolio_value": 10000.0,
+      "cash": 10000.0,
+      "position_value": 0.0,
+      "close_price": 150.0
+    },
+    {
+      "timestamp": "2023-01-02T00:00:00Z",
+      "portfolio_value": 10000.0,
+      "cash": 8500.0,
+      "position_value": 1500.0,
+      "close_price": 150.0
+    },
+    {
+      "timestamp": "2023-01-05T00:00:00Z",
+      "portfolio_value": 10100.0,
+      "cash": 10100.0,
+      "position_value": 0.0,
+      "close_price": 160.0
+    }
+  ]
+}
+```
+
+### Clear Backtest History
+
+```
+DELETE /api/backtest/history
+```
+
+Clear backtest history.
+
+#### Response
+
+```json
+{
+  "success": true,
+  "message": "Backtest history cleared",
+  "backtests": [],
+  "count": 0
 }
 ``` 

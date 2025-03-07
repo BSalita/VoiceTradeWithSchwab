@@ -32,7 +32,16 @@ class HighLowStrategy:
         
         # Get the current price
         quote = trading_service.get_quote(self.symbol)
-        current_price = quote.get("last")
+        
+        # Handle different quote structures
+        # If the quote is a nested structure with 'quote' key (from MarketDataService)
+        if isinstance(quote, dict) and 'quote' in quote:
+            quote_data = quote['quote']
+        else:
+            # Direct quote from TradingService or mock
+            quote_data = quote
+            
+        current_price = quote_data.get("last")
         
         # Check if we should buy or sell
         if current_price <= self.low_threshold and self.last_action != "BUY":

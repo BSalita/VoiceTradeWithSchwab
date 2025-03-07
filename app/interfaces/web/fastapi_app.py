@@ -11,13 +11,14 @@ import app
 
 from .models import (
     # Request models
-    OrderRequest, StrategyRequest,
+    OrderRequest, StrategyRequest, BacktestRequest, CompareStrategiesRequest,
     # Response models
     HealthResponse, OrderResponse, OrdersResponse, QuoteResponse, QuotesResponse,
     AccountResponse, StrategyResponse, StrategiesResponse, TradeHistoryResponse,
-    ExportResponse
+    ExportResponse, BacktestResponse, StrategyComparisonResponse, BacktestsResponse
 )
 from ...services import ServiceRegistry, get_service
+from ...models.order import TradingSession
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +41,7 @@ def create_fastapi_app() -> FastAPI:
     * **Strategies:** Start, stop, and monitor trading strategies
     * **Account:** View account information and positions
     * **History:** Retrieve and export trade history
+    * **Backtesting:** Backtest strategies and compare their performance
     """
     
     tags_metadata = [
@@ -49,84 +51,92 @@ def create_fastapi_app() -> FastAPI:
         },
         {
             "name": "account",
-            "description": "Account information and balances",
+            "description": "Account information and positions",
         },
         {
             "name": "orders",
-            "description": "Order management",
+            "description": "Place, cancel, and retrieve orders",
         },
         {
             "name": "quotes",
-            "description": "Market data and quotes",
+            "description": "Get quotes and market data",
         },
         {
             "name": "strategies",
-            "description": "Trading strategies",
+            "description": "Start, stop, and monitor trading strategies",
         },
         {
             "name": "history",
-            "description": "Trade history and exports",
+            "description": "Retrieve and export trade history",
         },
+        {
+            "name": "backtesting",
+            "description": "Backtest strategies and compare performance",
+        }
     ]
     
-    # Create the FastAPI app
-    app = FastAPI(
+    # Create FastAPI app
+    fastapi_app = FastAPI(
         title="AutomatedTrading API",
         description=description,
-        version=app.__version__,
-        openapi_tags=tags_metadata,
+        version="1.0.0",
+        openapi_tags=tags_metadata
     )
     
     # Add CORS middleware
-    app.add_middleware(
+    fastapi_app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],  # Replace with specific origins in production
+        allow_origins=["*"],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
     
-    # Initialize services if not already done
+    app = fastapi_app
+    
+    # Startup event
     @app.on_event("startup")
     async def startup_event():
-        try:
-            trading_service = get_service("trading")
-            if trading_service is None:
-                ServiceRegistry.initialize_services()
-                logger.info("Services initialized on startup")
-        except Exception as e:
-            logger.error(f"Error initializing services: {str(e)}")
+        """Initialize services on startup"""
+        logger.info("Starting FastAPI application")
+        
+        # Initialize services
+        from ...services.service_registry import ServiceRegistry
+        ServiceRegistry.initialize_services()
+        
+        logger.info("Services initialized")
     
-    # Define dependencies
+    # Service dependencies
     def get_trading_service():
-        service = get_service("trading")
-        if not service:
-            raise HTTPException(status_code=503, detail="Trading service not available")
-        return service
+        """Get the trading service dependency"""
+        return get_service("trading")
     
     def get_market_data_service():
-        service = get_service("market_data")
-        if not service:
-            raise HTTPException(status_code=503, detail="Market data service not available")
-        return service
+        """Get the market data service dependency"""
+        return get_service("market_data")
     
     def get_strategy_service():
-        service = get_service("strategies")
-        if not service:
-            raise HTTPException(status_code=503, detail="Strategy service not available")
-        return service
+        """Get the strategy service dependency"""
+        return get_service("strategies")
     
-    # Health check endpoints
+    def get_backtesting_service():
+        """Get the backtesting service dependency"""
+        return get_service("backtesting")
+    
+    # Health check endpoint
     @app.get("/api/health", response_model=HealthResponse, tags=["health"])
     async def health_check():
-        """Check API health status"""
+        """
+        Health check endpoint
+        Returns the API status and version
+        """
         return {
             "success": True,
-            "status": "ok",
-            "message": "Trading API is running",
-            "version": app.__version__
+            "message": "API is operational",
+            "status": "healthy",
+            "version": "1.0.0"
         }
-    
+
     # Account endpoints
     @app.get("/api/account", response_model=AccountResponse, tags=["account"])
     async def get_account_info(
@@ -299,6 +309,221 @@ def create_fastapi_app() -> FastAPI:
             raise HTTPException(status_code=400, detail=result.get("error", "Failed to export trade history"))
             
         return result
+    
+    # Backtesting endpoints
+    @app.post("/api/backtest", response_model=BacktestResponse, tags=["backtesting"])
+    async def run_backtest(
+        backtest: BacktestRequest,
+        backtesting_service = Depends(get_backtesting_service)
+    ):
+        """
+        Run a backtest for a trading strategy
+        
+        - **strategy_name**: Name of the strategy to backtest
+        - **symbol**: Stock symbol to backtest
+        - **start_date**: Start date in YYYY-MM-DD format
+        - **end_date**: End date in YYYY-MM-DD format
+        - **initial_capital**: Initial capital for the backtest (default: 10000.0)
+        - **trading_session**: Trading session (default: REGULAR)
+        - **strategy_params**: Additional parameters for the strategy
+        """
+        try:
+            # Convert trading session string to enum
+            if backtest.trading_session == "REGULAR":
+                trading_session = TradingSession.REGULAR
+            elif backtest.trading_session == "EXTENDED":
+                trading_session = TradingSession.EXTENDED
+            else:
+                trading_session = TradingSession.REGULAR
+            
+            # Run backtest
+            result = backtesting_service.run_backtest(
+                strategy_name=backtest.strategy_name,
+                symbol=backtest.symbol,
+                start_date=backtest.start_date,
+                end_date=backtest.end_date,
+                initial_capital=backtest.initial_capital,
+                trading_session=trading_session,
+                strategy_params=backtest.strategy_params
+            )
+            
+            if not result.success:
+                return {
+                    "success": False,
+                    "error": result.error or "Backtest failed",
+                    "message": f"Failed to run backtest for {backtest.strategy_name} on {backtest.symbol}"
+                }
+            
+            # Get summary and metrics
+            summary = result.get_summary()
+            metrics = result.get_trade_statistics()
+            
+            # Build response
+            return {
+                "success": True,
+                "message": f"Backtest for {backtest.strategy_name} on {backtest.symbol} completed successfully",
+                "backtest_id": result.backtest_id,
+                "summary": summary,
+                "metrics": metrics,
+                "trades": result.trades,
+                "equity_curve": result.equity_curve
+            }
+            
+        except Exception as e:
+            logger.error(f"Error running backtest: {str(e)}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Error running backtest: {str(e)}")
+    
+    @app.post("/api/backtest/compare", response_model=StrategyComparisonResponse, tags=["backtesting"])
+    async def compare_strategies(
+        comparison: CompareStrategiesRequest,
+        backtesting_service = Depends(get_backtesting_service)
+    ):
+        """
+        Compare multiple strategies over the same time period
+        
+        - **strategies**: List of strategy names to compare
+        - **symbol**: Stock symbol to backtest
+        - **start_date**: Start date in YYYY-MM-DD format
+        - **end_date**: End date in YYYY-MM-DD format
+        - **initial_capital**: Initial capital for each backtest (default: 10000.0)
+        - **trading_session**: Trading session (default: REGULAR)
+        - **strategy_params**: Parameters for each strategy, keyed by strategy name
+        """
+        try:
+            # Convert trading session string to enum
+            if comparison.trading_session == "REGULAR":
+                trading_session = TradingSession.REGULAR
+            elif comparison.trading_session == "EXTENDED":
+                trading_session = TradingSession.EXTENDED
+            else:
+                trading_session = TradingSession.REGULAR
+            
+            # Compare strategies
+            result = backtesting_service.compare_strategies(
+                strategies=comparison.strategies,
+                symbol=comparison.symbol,
+                start_date=comparison.start_date,
+                end_date=comparison.end_date,
+                initial_capital=comparison.initial_capital,
+                trading_session=trading_session,
+                strategy_params=comparison.strategy_params
+            )
+            
+            return {
+                "success": True,
+                "message": f"Strategy comparison for {comparison.symbol} completed successfully",
+                "backtest_period": result["backtest_period"],
+                "metrics_comparison": result["metrics_comparison"],
+                "overall_ranking": result["overall_ranking"],
+                "best_strategy": result["best_strategy"],
+                "metric_rankings": result["metric_rankings"]
+            }
+            
+        except Exception as e:
+            logger.error(f"Error comparing strategies: {str(e)}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Error comparing strategies: {str(e)}")
+    
+    @app.get("/api/backtest/history", response_model=BacktestsResponse, tags=["backtesting"])
+    async def get_backtest_history(
+        strategy: Optional[str] = None,
+        symbol: Optional[str] = None,
+        backtesting_service = Depends(get_backtesting_service)
+    ):
+        """
+        Get backtest history
+        
+        - **strategy**: Filter by strategy name (optional)
+        - **symbol**: Filter by symbol (optional)
+        """
+        try:
+            # Get backtest history
+            history = backtesting_service.get_backtest_history()
+            
+            # Filter by strategy and symbol if provided
+            filtered_history = []
+            for backtest_id, backtest in history.items():
+                if strategy and backtest["strategy_name"] != strategy:
+                    continue
+                if symbol and backtest["symbol"] != symbol:
+                    continue
+                
+                # Add to filtered history if it has a result
+                if backtest["status"] == "completed" and backtest["result"]:
+                    summary = backtest["result"].get_summary()
+                    filtered_history.append(summary)
+            
+            return {
+                "success": True,
+                "message": f"Retrieved {len(filtered_history)} backtests",
+                "backtests": filtered_history,
+                "count": len(filtered_history)
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting backtest history: {str(e)}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Error getting backtest history: {str(e)}")
+    
+    @app.get("/api/backtest/{backtest_id}", response_model=BacktestResponse, tags=["backtesting"])
+    async def get_backtest_result(
+        backtest_id: str = Path(..., description="ID of the backtest"),
+        backtesting_service = Depends(get_backtesting_service)
+    ):
+        """
+        Get a specific backtest result
+        
+        - **backtest_id**: ID of the backtest
+        """
+        try:
+            # Get backtest result
+            result = backtesting_service.get_backtest_result(backtest_id)
+            
+            if not result:
+                return {
+                    "success": False,
+                    "error": f"Backtest with ID {backtest_id} not found",
+                    "message": "Backtest not found"
+                }
+            
+            # Get summary and metrics
+            summary = result.get_summary()
+            metrics = result.get_trade_statistics()
+            
+            # Build response
+            return {
+                "success": True,
+                "message": f"Retrieved backtest {backtest_id}",
+                "backtest_id": result.backtest_id,
+                "summary": summary,
+                "metrics": metrics,
+                "trades": result.trades,
+                "equity_curve": result.equity_curve
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting backtest result: {str(e)}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Error getting backtest result: {str(e)}")
+    
+    @app.delete("/api/backtest/history", response_model=BacktestsResponse, tags=["backtesting"])
+    async def clear_backtest_history(
+        backtesting_service = Depends(get_backtesting_service)
+    ):
+        """
+        Clear backtest history
+        """
+        try:
+            # Clear backtest history
+            backtesting_service.clear_backtest_history()
+            
+            return {
+                "success": True,
+                "message": "Backtest history cleared",
+                "backtests": [],
+                "count": 0
+            }
+            
+        except Exception as e:
+            logger.error(f"Error clearing backtest history: {str(e)}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Error clearing backtest history: {str(e)}")
     
     logger.info("FastAPI application initialized")
     return app 

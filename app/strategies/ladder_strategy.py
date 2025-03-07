@@ -19,9 +19,9 @@ class LadderStrategy(BaseStrategy):
         super().__init__()
         self.active_ladders = {}  # Track active ladder strategies
     
-    def execute(self, symbol: str, quantity: int, side: str, 
-               price_start: float, price_end: float, steps: int,
-               order_type: str = 'LIMIT') -> Dict[str, Any]:
+    def execute(self, symbol: str, quantity: int = 10, side: str = 'BUY', 
+               price_start: float = 0.0, price_end: float = 0.0, steps: int = 5,
+               order_type: str = 'LIMIT', context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
         Execute a ladder strategy by placing multiple orders at different price points
         
@@ -33,10 +33,15 @@ class LadderStrategy(BaseStrategy):
             price_end (float): Ending price
             steps (int): Number of steps in the ladder
             order_type (str): Order type (usually LIMIT)
+            context (Optional[Dict[str, Any]]): Backtesting context (used in simulation)
             
         Returns:
             Dict[str, Any]: Results of the ladder strategy execution
         """
+        # For backtesting/simulation
+        if context and context.get('simulation', False):
+            return self._execute_in_simulation(symbol, quantity, side, price_start, price_end, steps, order_type, context)
+        
         logger.info(f"Executing ladder {side} strategy for {symbol}")
         
         # Validate inputs
@@ -196,4 +201,71 @@ class LadderStrategy(BaseStrategy):
         """
         # Return only active ladders
         return {ladder_id: ladder for ladder_id, ladder in self.active_ladders.items() 
-                if ladder.get('active', True)} 
+                if ladder.get('active', True)}
+    
+    def _execute_in_simulation(self, symbol: str, quantity: int, side: str,
+                       price_start: float, price_end: float, steps: int,
+                       order_type: str, context: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Execute the ladder strategy in a simulation environment
+        
+        Args:
+            symbol: Symbol to trade
+            quantity: Quantity per step
+            side: BUY or SELL
+            price_start: Starting price
+            price_end: Ending price
+            steps: Number of steps
+            order_type: Order type
+            context: Backtesting context
+            
+        Returns:
+            Dict with simulation execution results
+        """
+        # Get current market data from the context
+        market_data = context.get('market_data', {})
+        current_price = market_data.get('close', 0.0)
+        
+        # Default to current price if prices not specified
+        if price_start <= 0:
+            price_start = current_price
+        if price_end <= 0:
+            if side.upper() == 'BUY':
+                price_end = price_start * 0.95  # 5% below start price for buys
+            else:
+                price_end = price_start * 1.05  # 5% above start price for sells
+        
+        # Generate orders for the ladder
+        orders = []
+        if steps <= 1:
+            # Just one order at the start price
+            orders.append({
+                "symbol": symbol,
+                "side": side.upper(),
+                "quantity": quantity,
+                "price": price_start,
+                "order_type": order_type
+            })
+        else:
+            # Calculate price step
+            step_size = (price_end - price_start) / (steps - 1)
+            
+            # Create orders at each price point
+            for i in range(steps):
+                step_price = price_start + (i * step_size)
+                orders.append({
+                    "symbol": symbol,
+                    "side": side.upper(),
+                    "quantity": quantity,
+                    "price": step_price,
+                    "order_type": order_type
+                })
+        
+        return {
+            "success": True,
+            "strategy": "ladder",
+            "symbol": symbol,
+            "side": side.upper(),
+            "orders": orders,
+            "message": f"Generated {len(orders)} {side.upper()} orders for {symbol} ladder strategy"
+        } 

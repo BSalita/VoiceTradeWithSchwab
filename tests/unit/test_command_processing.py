@@ -15,6 +15,7 @@ from app.services.trading_service import TradingService
 from app.services.market_data_service import MarketDataService
 from app.commands.command_processor import CommandProcessor
 from app.services.service_registry import ServiceRegistry
+from app.models.trade_history import TradeHistory
 
 
 class TestCommandProcessing:
@@ -342,10 +343,18 @@ class TestCommandProcessing:
         # Process the command
         result = self.command_processor.process_command(command)
         
+        # Print the result for debugging
+        print(f"Result: {result}")
+        
         # Should return an error response
         assert "success" in result
         assert result.get("success") == False
-        assert "data" in result
+        
+        # Check for helpful information
+        assert "command_text" in result
+        assert result["command_text"] == command
+        assert "help" in result
+        assert "help" in result["help"]
 
     def test_check_price_command(self):
         """

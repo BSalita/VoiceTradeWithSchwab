@@ -180,7 +180,7 @@ class TestStrategyService:
         self.strategy_service.register_strategy("test_highlow", strategy)
         
         # Mock the quote to trigger a buy signal
-        with patch.object(self.market_data_service, 'get_quote', return_value={
+        with patch.object(self.trading_service, 'get_quote', return_value={
             "symbol": "AAPL",
             "bid": 139.0,
             "ask": 139.5,
@@ -197,7 +197,7 @@ class TestStrategyService:
             assert orders[0]["quantity"] == 10
             
             # Mock the quote to trigger a sell signal
-            with patch.object(self.market_data_service, 'get_quote', return_value={
+            with patch.object(self.trading_service, 'get_quote', return_value={
                 "symbol": "AAPL",
                 "bid": 151.0,
                 "ask": 151.5,
@@ -225,14 +225,15 @@ class TestStrategyService:
             "price_range": 0.02,  # 2% price range
             "is_percentage": True,
             "min_trade_interval": 60,
-            "max_positions": 3
+            "max_positions": 3,
+            "test": True  # Add test flag to place order immediately
         }
         
         # Register the strategy
         self.strategy_service.register_strategy("test_oscillating", strategy)
         
         # Mock the quote to be within the oscillating range
-        with patch.object(self.market_data_service, 'get_quote', return_value={
+        with patch.object(self.trading_service, 'get_quote', return_value={
             "symbol": "MSFT",
             "bid": 195.0,
             "ask": 195.5,

@@ -347,16 +347,16 @@ class SchwabAPIClient:
         Returns:
             Dict[str, Any]: Order result
         """
-        # For PAPER mode with mock functionality, use mock order placement
-        if self.trading_mode == "PAPER" and os.environ.get("USE_MOCK_FOR_PAPER", "0") == "1":
+        # For PAPER mode, use paper order placement
+        if self.trading_mode == "PAPER":
             logger.info(f"Placing mock order in PAPER mode: {order_data}")
-            return self._mock_place_order(order_data)
+            return self._paper_place_order(order_data)
             
         # For MOCK mode, use mock order placement
         if self.trading_mode == "MOCK":
             return self._mock_place_order(order_data)
             
-        # For LIVE and regular PAPER mode, use API
+        # For LIVE mode, use API
         return self._make_request('POST', 'orders', data=order_data)
     
     def cancel_order(self, order_id: str) -> Dict[str, Any]:
@@ -394,17 +394,20 @@ class SchwabAPIClient:
         # For PAPER mode with mock functionality, use mock orders
         if self.trading_mode == "PAPER" and os.environ.get("USE_MOCK_FOR_PAPER", "0") == "1":
             logger.info(f"Getting mock orders in PAPER mode")
-            return self._mock_get_orders()
+            return self._mock_get_orders(status)
             
         # For MOCK mode, use mock orders
         if self.trading_mode == "MOCK":
-            return self._mock_get_orders()
+            return self._mock_get_orders(status)
             
         # For LIVE and regular PAPER mode, use API
+        endpoint = "orders"
         params = {}
+        
         if status:
-            params['status'] = status
-        return self._make_request('GET', 'orders', params=params)
+            params["status"] = status
+            
+        return self._make_request('GET', endpoint, params=params)
         
     # WebSocket streaming methods
     def start_price_stream(self, symbols: List[str]) -> bool:
@@ -613,8 +616,6 @@ class SchwabAPIClient:
         
         # Store the mock order
         self.mock_orders[order_id] = mock_order
-        print(f"DEBUG: Placed mock order: {mock_order}")
-        print(f"DEBUG: Total mock orders: {len(self.mock_orders)}")
         
         # Return a response similar to what the API would return
         return {
@@ -646,13 +647,11 @@ class SchwabAPIClient:
                 'order_id': order_id
             }
     
-    def _get_mock_orders(self) -> List[Dict[str, Any]]:
-        """Get mock orders."""
-        # Get all orders
-        orders = list(self.mock_orders.values())
-        print(f"DEBUG: Getting mock orders. Total: {len(orders)}")
-        
-        return orders
+    def _mock_get_orders(self, status: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Mock implementation of get_orders for PAPER mode"""
+        if status:
+            return [order for order in self.mock_orders.values() if order.get('status', '').upper() == status.upper()]
+        return list(self.mock_orders.values())
     
     def _get_mock_quote(self, symbol: str) -> Dict[str, Any]:
         """Mock implementation of get_quote for PAPER mode"""
@@ -724,12 +723,44 @@ class SchwabAPIClient:
             "updated_at": datetime.datetime.now().isoformat()
         }
         
-        # For API compatibility, add orderType field if communicating with external systems
-        if self._external_api_mode:
-            order["orderType"] = order_type
-        
         # Store the order
         self.mock_orders[order_id] = order
+        
+        # Update paper balance and positions
+        if price is not None:
+            order_cost = quantity * price
+            
+            if side.upper() == "BUY":
+                # Decrease balance for buys
+                if hasattr(self, 'paper_balance'):
+                    self.paper_balance -= order_cost
+                
+                # Update positions
+                if not hasattr(self, 'paper_positions'):
+                    self.paper_positions = {}
+                
+                if symbol not in self.paper_positions:
+                    self.paper_positions[symbol] = {
+                        "symbol": symbol,
+                        "quantity": quantity,
+                        "costBasis": order_cost,
+                        "currentValue": order_cost
+                    }
+                else:
+                    self.paper_positions[symbol]["quantity"] += quantity
+                    self.paper_positions[symbol]["costBasis"] += order_cost
+                    self.paper_positions[symbol]["currentValue"] += order_cost
+            
+            elif side.upper() == "SELL":
+                # Increase balance for sells
+                if hasattr(self, 'paper_balance'):
+                    self.paper_balance += order_cost
+                
+                # Update positions
+                if hasattr(self, 'paper_positions') and symbol in self.paper_positions:
+                    self.paper_positions[symbol]["quantity"] -= quantity
+                    if self.paper_positions[symbol]["quantity"] <= 0:
+                        del self.paper_positions[symbol]
         
         logger.info(f"Created mock order: {order}")
         
@@ -752,10 +783,6 @@ class SchwabAPIClient:
             "currency": "USD",
             "status": "ACTIVE"
         }
-    
-    def _mock_get_orders(self) -> List[Dict[str, Any]]:
-        """Mock implementation of get_orders for PAPER mode"""
-        return list(self.mock_orders.values())
 
     def get_positions(self) -> List[Dict[str, Any]]:
         """

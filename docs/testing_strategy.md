@@ -246,4 +246,170 @@ When adding new functionality, follow this pattern:
        
    def test_invalid_input(self):
        # Test with invalid input
-   ``` 
+   ```
+
+## Unit Testing Strategies
+
+Unit tests for trading strategies should verify:
+
+1. Strategy initialization with valid and invalid parameters
+2. Strategy execution under different market conditions
+3. Order placement logic and thresholds
+4. Error handling and recovery
+
+### Testing Dictionary-Based Strategies
+
+Some strategies like OscillatingStrategy use a dictionary-based configuration approach instead of direct attributes. When testing these strategies:
+
+1. **Safe Access**: Verify the strategy safely accesses configuration using `get()` with default values
+2. **Parameter Validation**: Test that all required parameters are properly validated
+3. **Quote Handling**: Test with different quote structures (MarketDataService vs. TradingService)
+4. **Mocking**: Use appropriate mocks for services the strategy depends on
+
+Example test for OscillatingStrategy:
+
+```python
+def test_oscillating_strategy_integration(self):
+    """Test the OscillatingStrategy integration with mock mode"""
+    # Create an OscillatingStrategy
+    strategy = OscillatingStrategy()
+    
+    # Configure with proper parameters
+    strategy_params = {
+        "symbol": "MSFT",
+        "quantity": 5,
+        "price_range": 0.02,
+        "is_percentage": True,
+        "min_trade_interval": 60,
+        "max_positions": 3,
+        "test": True  # Test mode for immediate order placement
+    }
+    
+    # Register the strategy
+    self.strategy_service.register_strategy("test_oscillating", strategy)
+    
+    # Mock the quote
+    with patch.object(self.trading_service, 'get_quote', return_value={
+        "symbol": "MSFT",
+        "bid": 195.0,
+        "ask": 195.5,
+        "last": 195.0
+    }):
+        # Execute the strategy
+        self.strategy_service.execute_strategy("test_oscillating", **strategy_params)
+        
+        # Verify orders were placed
+        orders = self.trading_service.get_orders()
+        assert len(orders) > 0
+```
+
+Example test for HighLowStrategy:
+
+```python
+def test_highlow_strategy_integration(self):
+    """Test the HighLowStrategy integration with mock mode"""
+    # Create a HighLowStrategy
+    strategy = HighLowStrategy(
+        symbol="AAPL",
+        quantity=10,
+        high_threshold=150.0,
+        low_threshold=140.0
+    )
+    
+    # Register the strategy
+    self.strategy_service.register_strategy("test_highlow", strategy)
+    
+    # Mock the quote to trigger a buy signal
+    with patch.object(self.trading_service, 'get_quote', return_value={
+        "symbol": "AAPL",
+        "bid": 139.0,
+        "ask": 139.5,
+        "last": 139.0
+    }):
+        # Execute the strategy
+        self.strategy_service.execute_strategy("test_highlow")
+        
+        # Verify an order was placed
+        orders = self.trading_service.get_orders()
+        assert len(orders) == 1
+        assert orders[0]["side"] == "BUY"
+```
+
+### Mocking Price Data
+
+Mocking price data is crucial for testing strategies. Ensure that:
+
+1. **Mocking**: Use appropriate mocks for services the strategy depends on
+2. **Consistency**: Mock data should be consistent with real-world data
+3. **Range**: Mock data should cover a wide range of market conditions
+
+Example mock for MarketDataService:
+
+```python
+@patch('app.services.MarketDataService.get_quote')
+def test_market_data(self, mock_get_quote):
+    mock_get_quote.return_value = {'symbol': 'AAPL', 'price': 150.0}
+    # Test code...
+```
+
+Example mock for TradingService:
+
+```python
+@patch('app.services.TradingService.get_quote')
+def test_market_data(self, mock_get_quote):
+    mock_get_quote.return_value = {'symbol': 'AAPL', 'price': 150.0}
+    # Test code...
+```
+
+### Testing Price Target Feature in OTO Ladder Strategy
+
+When testing the OTO Ladder Strategy's price_target functionality:
+
+1. **Parameter Validation**: Verify the strategy validates the price_target parameter correctly
+   - Test with valid price_target (greater than start_price)
+   - Test with invalid price_target (negative or zero value)
+   - Test with price_target below start_price
+
+2. **Early Termination**: Test that the strategy terminates when the price target is reached
+   - Mock current price above the price_target
+   - Verify the strategy returns with 'target_reached' status
+   - Verify no orders are placed when the target is reached
+
+3. **Normal Execution**: Test that the strategy executes normally when the price target is not reached
+   - Mock current price below the price_target
+   - Verify the strategy generates OTO ladder code and file
+   - Verify the strategy continues normal execution
+
+Example test for price target reached:
+
+```python
+def test_execute_with_price_target_reached(self):
+    """Test execution when price target is reached"""
+    # Set a price target that's already reached
+    self.mock_quote_response['last_price'] = 500.0
+    
+    # Mock the _save_oto_ladder_to_file method
+    with patch.object(
+        self.strategy, '_save_oto_ladder_to_file', 
+        return_value='/path/to/mock_script.ts'
+    ) as mock_save:
+        
+        result = self.strategy.execute(
+            symbol='SPY',
+            start_price=450.0,
+            step=5.0,
+            initial_shares=100,
+            price_target=480.0  # Target below current price
+        )
+        
+        # Verify the result indicates target reached
+        assert result['success'] is True
+        assert result['target_reached'] is True
+        assert 'message' in result
+        assert 'price target reached' in result['message'].lower()
+        assert result['current_price'] == 500.0
+        assert result['price_target'] == 480.0
+        
+        # Verify the file was NOT saved since strategy terminated early
+        mock_save.assert_not_called()
+``` 

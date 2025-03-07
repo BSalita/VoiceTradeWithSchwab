@@ -230,8 +230,17 @@ class StrategyService:
         
         return {"success": True, "strategy": name}
     
-    def execute_strategy(self, name: str) -> Dict[str, Any]:
-        """Execute a strategy."""
+    def execute_strategy(self, name: str, **kwargs) -> Dict[str, Any]:
+        """
+        Execute a strategy.
+        
+        Args:
+            name: Name of the strategy to execute
+            **kwargs: Additional parameters to pass to the strategy's execute method
+            
+        Returns:
+            Result of strategy execution
+        """
         # Check if strategy exists
         if name not in self.strategies:
             raise ValueError(f"Unknown strategy: {name}")
@@ -240,14 +249,90 @@ class StrategyService:
         strategy = self.strategies[name]
         
         # Execute the strategy
-        result = strategy.execute()
+        result = strategy.execute(**kwargs)
         
         return result
+    
+    def execute_all_strategies(self, **kwargs) -> Dict[str, Any]:
+        """
+        Execute all registered strategies
+        
+        Args:
+            **kwargs: Additional parameters to pass to each strategy's execute method
+            
+        Returns:
+            Dictionary with results from all strategies
+        """
+        results = {
+            'success': True,
+            'executed': 0,
+            'failed': 0,
+            'details': []
+        }
+        
+        for name, strategy in self.strategies.items():
+            try:
+                result = strategy.execute(**kwargs)
+                results['details'].append({
+                    'strategy': name,
+                    'success': result.get('success', False),
+                    'result': result
+                })
+                
+                if result.get('success', False):
+                    results['executed'] += 1
+                else:
+                    results['failed'] += 1
+            except Exception as e:
+                logger.error(f"Error executing strategy {name}: {str(e)}")
+                results['details'].append({
+                    'strategy': name,
+                    'success': False,
+                    'error': str(e)
+                })
+                results['failed'] += 1
+        
+        # Set overall success to False if any failed
+        if results['failed'] > 0:
+            results['success'] = False
+        
+        return results
     
     def get_strategies(self) -> Dict[str, Any]:
         """Get all registered strategies."""
         return self.strategies
     
+    def list_strategies(self) -> Dict[str, Any]:
+        """
+        List all registered strategies
+        
+        Returns:
+            Dictionary with strategy names as keys and strategy objects as values
+        """
+        return self.strategies
+    
+    def get_strategy(self, name: str) -> Any:
+        """
+        Get a specific registered strategy
+        
+        Args:
+            name: Name of the strategy to retrieve
+            
+        Returns:
+            The strategy if found, None otherwise
+        """
+        return self.strategies.get(name)
+    
+    def remove_strategy(self, name: str) -> None:
+        """
+        Remove a registered strategy
+        
+        Args:
+            name: Name of the strategy to remove
+        """
+        if name in self.strategies:
+            del self.strategies[name]
+
     def register_strategy(self, name: str, strategy: Any) -> None:
         """Register a strategy."""
         self.strategies[name] = strategy 

@@ -45,11 +45,11 @@ class TestMarketDataService:
         Test that the MarketDataService initializes with correct default values.
         
         Verifies:
-        - The API client is initially None
+        - The API client is initialized automatically if none is provided
         - The streaming_symbols set is empty
         """
         service = MarketDataService()
-        assert service.api_client is None
+        assert service.api_client is not None
         assert service.streaming_symbols == set()
 
     def test_get_quote_success(self):
@@ -157,8 +157,10 @@ class TestMarketDataService:
         self.api_client.start_price_stream.assert_called_once_with(["AAPL", "MSFT"])
         assert result["success"] == True
         assert "message" in result
-        assert "AAPL" in result["message"]
-        assert "MSFT" in result["message"]
+        # Check if symbols are included in the response instead of in the message
+        assert "symbols" in result
+        assert "AAPL" in result["symbols"]
+        assert "MSFT" in result["symbols"]
         assert self.market_data_service.streaming_symbols == {"AAPL", "MSFT"}
 
     def test_start_price_stream_error(self):
@@ -240,19 +242,30 @@ class TestMarketDataService:
 
     def test_get_market_hours(self):
         """Test getting market hours"""
-        # This is a placeholder test as the implementation might vary
+        # Mock the API client response
+        self.api_client.get_market_hours.return_value = {
+            'status': 'OPEN',
+            'hours': {
+                'open': '09:30:00',
+                'close': '16:00:00'
+            }
+        }
+        
         result = self.market_data_service.get_market_hours()
         
         assert "status" in result
         assert "hours" in result
+        assert result["status"] == "OPEN"
 
     def test_get_market_status(self):
         """Test getting market status"""
-        # This is a placeholder test as the implementation might vary
+        # Mock the API client response
+        self.api_client.get_market_status.return_value = "OPEN"
+        
         result = self.market_data_service.get_market_status()
         
         assert isinstance(result, str)
-        assert result in ["OPEN", "CLOSED", "PRE_MARKET", "AFTER_HOURS", "UNKNOWN"]
+        assert result == "OPEN"
 
 
 def run_tests():

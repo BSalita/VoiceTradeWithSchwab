@@ -64,11 +64,13 @@ def _register_builtin_strategies() -> None:
     from .ladder_strategy import LadderStrategy
     from .oscillating_strategy import OscillatingStrategy
     from .highlow_strategy import HighLowStrategy
+    from .oto_ladder_strategy import OTOLadderStrategy
     
     register_strategy("basic", BasicStrategy)
     register_strategy("ladder", LadderStrategy)
     register_strategy("oscillating", OscillatingStrategy)
     register_strategy("highlow", HighLowStrategy)
+    register_strategy("oto_ladder", OTOLadderStrategy)
     
     logger.info("Built-in strategies registered")
 

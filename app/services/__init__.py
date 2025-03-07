@@ -49,13 +49,21 @@ class ServiceRegistry:
         from .trading_service import TradingService
         from .market_data_service import MarketDataService
         from .strategy_service import StrategyService
+        from .backtesting_service import BacktestingService
         
         # Register core services
         cls.register("trading", TradingService())
         cls.register("market_data", MarketDataService())
         cls.register("strategies", StrategyService())
+        cls.register("backtesting", BacktestingService())
         
         logger.info("Core services initialized")
+    
+    @classmethod
+    def clear(cls) -> None:
+        """Clear all registered services (mainly for testing)"""
+        cls._services = {}
+        logger.debug("Service registry cleared")
 
 def get_service(service_name: str) -> Optional[Any]:
     """

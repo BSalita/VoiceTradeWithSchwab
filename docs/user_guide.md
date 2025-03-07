@@ -15,6 +15,7 @@ This comprehensive guide covers both end-user operation and developer instructio
   - [Trading Strategies](#trading-strategies)
   - [Market Data](#market-data)
   - [Account Management](#account-management)
+  - [Backtesting](#backtesting)
   - [Troubleshooting](#troubleshooting)
   - [FAQ](#faq)
 - [For Developers](#for-developers)
@@ -208,6 +209,45 @@ start twap MSFT side=buy quantity=1000 intervals=10 duration=60
 
 This buys 1000 shares of Microsoft in 10 equal parts over 60 minutes.
 
+#### OTO Ladder Strategy
+
+The OTO Ladder (One-Triggers-Other) Step Strategy creates a step-based approach for scaling in and out of positions using thinkorswim's script feature:
+
+```
+start oto_ladder symbol=SYMBOL start_price=PRICE step=STEP_SIZE initial_shares=QUANTITY price_target=PRICE_TARGET
+```
+
+Example:
+```
+start oto_ladder symbol=SPY start_price=450 step=5 initial_shares=100 price_target=500
+```
+
+This generates an OTO Ladder strategy that:
+1. Sells 5% of the position (5 shares in this example) when price reaches each step above $450
+2. For each sell, creates a buy-back order 2x the step size lower ($10 lower in this example)
+3. For each buy-back, creates a take-profit order at the next step higher
+4. Uses EXTO (Extended Hours) time-in-force for all orders
+
+Voice command example:
+```
+Generate OTO Ladder strategy for SPY starting at $450 with $5 steps and 100 initial shares
+```
+
+When executed, the strategy:
+1. Calculates the appropriate price levels based on current market conditions
+2. Generates OTO Ladder code for thinkorswim
+3. Saves the OTO Ladder file to the `oto_ladder` directory with a timestamp
+4. Returns a result with the file path and strategy parameters
+
+To use the generated OTO Ladder code:
+1. Copy the code from the result or open the saved `.ts` file
+2. In thinkorswim, go to Studies > Edit Studies > Create
+3. Paste the code and save with a name like "OTO Ladder Strategy"
+4. Apply the study to your chart
+5. Follow the alerts to place OTO orders when price reaches new step levels
+
+This strategy works best for trending markets where you want to gradually scale out of a position while automatically setting up for potential dip-buying opportunities.
+
 #### Custom Strategies
 
 For custom strategies, refer to the strategy documentation or use:
@@ -291,6 +331,74 @@ Example:
 cancel order ORD123456
 ```
 
+### Backtesting
+
+The system provides comprehensive backtesting capabilities to evaluate and compare trading strategies using historical data.
+
+#### Running a Backtest
+
+To backtest a strategy, use the following command format:
+
+```
+backtest STRATEGY_NAME on SYMBOL from START_DATE to END_DATE [with initial capital $AMOUNT]
+```
+
+Example:
+```
+backtest ladder on AAPL from 2023-01-01 to 2023-06-30
+```
+
+This will run a backtest of the ladder strategy on AAPL from January 1, 2023 to June 30, 2023 with the default initial capital of $10,000.
+
+You can specify a different initial capital:
+```
+backtest oto_ladder on SPY from 2023-01-01 to 2023-12-31 with initial capital $50000
+```
+
+#### Comparing Strategies
+
+To compare multiple strategies, use the following command format:
+
+```
+compare strategies STRATEGY1,STRATEGY2,... on SYMBOL from START_DATE to END_DATE [with initial capital $AMOUNT]
+```
+
+Example:
+```
+compare strategies ladder,oto_ladder,oscillating on MSFT from 2023-01-01 to 2023-12-31
+```
+
+This will run backtests for the ladder, oto_ladder, and oscillating strategies on MSFT for the year 2023, and compare their performance metrics.
+
+#### Backtest Results
+
+Backtest results include the following metrics:
+
+| Metric | Description |
+|--------|-------------|
+| Total Return | Percentage return over the backtest period |
+| Max Drawdown | Maximum percentage decline from a peak |
+| Sharpe Ratio | Risk-adjusted return (higher is better) |
+| Win Rate | Percentage of profitable trades |
+| Profit Factor | Ratio of gross profits to gross losses |
+| Average Win | Average profit per winning trade |
+| Average Loss | Average loss per losing trade |
+| Total Trades | Total number of trades executed |
+
+#### Strategy Comparison
+
+When comparing strategies, the system ranks them based on multiple metrics and provides an overall ranking. The best strategy is determined by its combined performance across all metrics.
+
+#### API Endpoints
+
+For programmatic access, the following API endpoints are available:
+
+- `POST /api/backtest`: Run a backtest
+- `POST /api/backtest/compare`: Compare multiple strategies
+- `GET /api/backtest/history`: Get backtest history
+- `GET /api/backtest/{backtest_id}`: Get a specific backtest result
+- `DELETE /api/backtest/history`: Clear backtest history
+
 ### Troubleshooting
 
 #### Order Placement Issues
@@ -369,6 +477,93 @@ A: Currently, only Schwab is supported. Integration with other brokers is planne
 
 **Q: Can I customize voice commands?**
 A: Yes, advanced users can modify the command parsing logic in the `app/interfaces/cli/command_processor.py` file.
+
+## Available Strategies
+
+The system includes several built-in trading strategies that can be used out of the box. Here's an overview of the available strategies and their parameters:
+
+### Ladder Strategy
+
+Creates a series of orders at incrementally spaced price levels.
+
+**Parameters:**
+- `symbol` - Stock symbol
+- `steps` - Number of price levels
+- `start_price` - Starting price level
+- `end_price` - Ending price level
+- `total_quantity` - Total number of shares to trade
+- `side` - Buy or sell (default: buy)
+- `distribution` - How to distribute shares among levels (equal or weighted)
+
+**Example:**
+```
+start ladder strategy for AAPL with steps=5 start_price=150 end_price=155 total_quantity=100
+```
+
+### OTO Ladder Strategy
+
+Creates a series of one-triggers-other (OTO) orders at incrementally spaced price levels.
+
+**Parameters:**
+- `symbol` - Stock symbol
+- `start_price` - Starting price level
+- `step` - Price increment between levels
+- `initial_shares` - Number of shares per level
+- `price_target` - Optional price level at which the strategy will terminate (if current price reaches or exceeds this value)
+
+**Example:**
+```
+start oto_ladder strategy for MSFT with start_price=250 step=5 initial_shares=10 price_target=280
+```
+
+### HighLow Strategy
+
+A simple breakout strategy that buys when price falls below a threshold and sells when it rises above another threshold.
+
+**Parameters:**
+- `symbol` - Stock symbol
+- `quantity` - Number of shares per trade
+- `low_threshold` - Price below which to buy
+- `high_threshold` - Price above which to sell
+
+**Example:**
+```
+start highlow strategy for AAPL with quantity=10 low_threshold=140 high_threshold=150
+```
+
+### Oscillating Strategy
+
+Trades based on price oscillations within a range around the current price.
+
+**Parameters:**
+- `symbol` - Stock symbol
+- `quantity` - Number of shares per trade
+- `price_range` - Price movement range (percentage or fixed amount)
+- `is_percentage` - Whether price_range is a percentage (true) or fixed amount (false)
+- `min_trade_interval` - Minimum seconds between trades (default: 60)
+- `max_positions` - Maximum number of concurrent positions (default: 3)
+
+**Example:**
+```
+start oscillating strategy for TSLA with quantity=5 price_range=0.02 is_percentage=true
+```
+
+### TWAP Strategy
+
+Time-Weighted Average Price strategy that executes trades at regular intervals.
+
+**Parameters:**
+- `symbol` - Stock symbol
+- `total_quantity` - Total number of shares to trade
+- `intervals` - Number of execution intervals
+- `duration` - Total strategy duration in minutes
+
+**Example:**
+```
+start twap strategy for GOOG with total_quantity=100 intervals=5 duration=60
+```
+
+For more detailed examples, please check the command reference in the next section.
 
 ## For Developers
 

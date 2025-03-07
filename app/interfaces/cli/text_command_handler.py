@@ -39,6 +39,19 @@ class TextCommandHandler(cmd.Cmd):
             
         logger.info("Text command handler initialized")
     
+    def process_command(self, command: str) -> Dict[str, Any]:
+        """
+        Process a command string and return the result.
+        This method is used by the CommandHandler to process text commands.
+        
+        Args:
+            command (str): The command to process
+            
+        Returns:
+            Dict[str, Any]: Command processing result
+        """
+        return self.handle_command(command)
+    
     def start_interactive_session(self) -> None:
         """Start the interactive command session"""
         console.print("[bold]Starting interactive trading session...[/bold]")

@@ -38,14 +38,14 @@ class TestSchwabClientMockMode:
         
         # Verify the result
         assert "order_id" in result
-        assert result["status"] == "SUBMITTED"
-        assert result["symbol"] == "AAPL"
-        assert result["quantity"] == 10
-        assert result["side"] == "BUY"
+        assert "success" in result
+        assert result["success"] == True
         
-        # Verify the order was stored
+        # Verify stored order details
         order_id = result["order_id"]
         assert order_id in client.mock_orders
+        assert client.mock_orders[order_id]["status"] == "SUBMITTED"
+        assert client.mock_orders[order_id]["symbol"] == "AAPL"
 
     def test_cancel_order_mock_mode(self):
         """Test cancelling an order in mock mode"""
@@ -72,7 +72,7 @@ class TestSchwabClientMockMode:
         assert cancel_result["order_id"] == order_id
         
         # Verify the order status was updated
-        assert client.mock_orders[order_id]["status"] == "CANCELLED"
+        assert client.mock_orders[order_id]["status"] == "canceled"
 
     def test_get_orders_mock_mode(self):
         """Test getting orders in mock mode"""

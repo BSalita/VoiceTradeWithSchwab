@@ -11,6 +11,7 @@ This document provides comprehensive guidance for implementing, testing, and dep
   - [TWAP Strategy](#twap-strategy)
   - [VWAP Strategy](#vwap-strategy)
   - [Momentum Strategy](#momentum-strategy)
+  - [OTO Ladder Strategy](#oto-ladder-strategy)
 - [Creating Custom Strategies](#creating-custom-strategies)
   - [Strategy Base Class](#strategy-base-class)
   - [Implementing a Strategy](#implementing-a-strategy)
@@ -159,6 +160,72 @@ The Volume-Weighted Average Price (VWAP) strategy executes trades in proportion 
 - Child order sizes are proportional to expected volume during each interval
 - Execution times are determined based on historical volume distribution
 
+### HighLow Strategy
+
+The HighLow strategy is a simple breakout trading strategy that buys when the price falls below a low threshold and sells when the price rises above a high threshold.
+
+#### Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `symbol` | string | The stock symbol |
+| `quantity` | integer | Number of shares per trade |
+| `low_threshold` | float | Price below which to buy |
+| `high_threshold` | float | Price above which to sell |
+
+#### Behavior
+
+- The strategy tracks the last action taken (BUY or SELL)
+- When price falls below the low threshold and the last action was not BUY, it places a buy order
+- When price rises above the high threshold and the last action was not SELL, it places a sell order
+- Orders are placed as market orders for immediate execution
+- The strategy maintains a simple state machine to avoid repeatedly placing the same type of order
+
+#### Implementation Notes
+
+- The strategy handles different quote formats from both MarketDataService and TradingService
+- For quotes from MarketDataService, it extracts the actual quote data from the nested structure
+- For direct quotes from TradingService, it uses the quote data as is
+- The "last" price field is used to determine the current price for decision making
+
+### Oscillating Strategy
+
+The Oscillating strategy is designed for range-bound markets, placing buy and sell orders as price oscillates between thresholds calculated from the current price.
+
+#### Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `symbol` | string | The stock symbol |
+| `quantity` | integer | Number of shares per trade |
+| `price_range` | float | Price movement range for thresholds |
+| `is_percentage` | boolean | Whether price_range is a percentage (true) or fixed amount (false) |
+| `min_trade_interval` | integer | Minimum seconds between trades |
+| `max_positions` | integer | Maximum number of concurrent positions |
+| `use_normal_dist` | boolean | Whether to use normal distribution for randomizing thresholds |
+| `std_dev` | float | Standard deviation for normal distribution (if enabled) |
+| `session` | string | Trading session: "REGULAR" or "EXTENDED" |
+| `duration` | string | Order duration: "DAY", "GTC", etc. |
+
+#### Behavior
+
+- Strategy calculates buy and sell thresholds based on the current price and price_range
+- Thresholds can be fixed dollar amounts or percentages of the current price
+- Optional normal distribution can add randomness to threshold calculations
+- Strategy streams real-time price updates for the configured symbol
+- When price crosses below buy threshold and position count is below max_positions, a buy order is placed
+- When price crosses above sell threshold and positions exist, the oldest position is sold (FIFO)
+- A minimum time interval between trades can be enforced to prevent excessive trading
+- The strategy tracks all active positions and their purchase prices
+
+#### Implementation Notes
+
+- The strategy configuration is stored as a dictionary for flexibility
+- Parameters are accessed using the get() method with default values for safety
+- Price streaming is handled asynchronously through callbacks
+- The strategy includes test mode for easier integration testing without requiring price streaming
+- All trading is done through the TradingService to ensure proper order tracking
+
 ### Momentum Strategy
 
 The Momentum strategy takes positions based on short-term price movements:
@@ -181,6 +248,94 @@ The Momentum strategy takes positions based on short-term price movements:
 - When momentum exceeds threshold, a position is taken in the direction of momentum
 - Positions are closed when stop_loss or take_profit conditions are met
 - Strategy stops executing after max_trades are completed
+
+### OTO Ladder Strategy
+
+The OTO Ladder (One-Triggers-Other) Step Strategy is designed to automate a step-based approach to scaling in and out of positions, with support for thinkorswim platform integration.
+
+#### Strategy Overview
+
+This strategy implements a step-based trading approach that:
+
+1. Sells 5% of initial shares when price rises to pre-defined step levels
+2. For each sell, creates a buy-back order at a price 2x the step value lower
+3. For each buy-back, creates a take-profit order at the next step higher
+4. Uses Extended Hours (EXTO) time-in-force for all orders
+5. Generates ready-to-use OTO Ladder code that can be loaded into thinkorswim
+
+The strategy is ideal for scaling out of positions on the way up while automatically positioning for buying back on dips.
+
+#### Implementation
+
+The OTO Ladder Strategy is implemented in `app/strategies/oto_ladder_strategy.py`. It extends the `BaseStrategy` class and provides:
+
+1. OTO Ladder code generation for thinkorswim platform
+2. Price step calculation based on current market conditions
+3. OTO (One-Triggers-Other) order chain creation
+4. Extended hours trading support via EXTO time-in-force
+5. File export of OTO Ladder code for easy loading into thinkorswim
+
+#### Configuration Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `symbol` | str | 'SPY' | Trading symbol |
+| `start_price` | float | current_price | Price level where the strategy begins (if 0, uses current price) |
+| `step` | float | 5.0 | Price increment that triggers sells |
+| `initial_shares` | int | 100 | Initial number of shares in the position |
+| `price_target` | float | None | Optional price level at which the strategy will terminate. When the current price equals or exceeds this value, the strategy will stop execution and return a success message |
+
+#### Usage Example
+
+```python
+from app.strategies import create_strategy
+
+# Create and configure the strategy
+strategy = create_strategy("oto_ladder", 
+                           symbol="AAPL", 
+                           start_price=200.0, 
+                           step=10.0, 
+                           initial_shares=500,
+                           price_target=250.0)  # Strategy will terminate when AAPL reaches $250
+
+# Execute the strategy
+result = strategy.execute()
+
+# Check if price target was reached
+if result.get('target_reached'):
+    print(f"Price target reached: {result['message']}")
+else:
+    # Get the OTO Ladder code
+    oto_ladder_code = result['oto_ladder_code']
+
+    # Get the path to the saved OTO Ladder file
+    file_path = result['oto_ladder_file']
+```
+
+#### Thinkorswim Integration
+
+The strategy generates OTO Ladder code that can be directly loaded into thinkorswim. This code creates:
+
+1. Visual indicators for each step level
+2. Arrow markers for entry and exit points
+3. Alerts when new step levels are reached
+4. Detailed instructions for creating OTO order chains
+5. Debug information to track strategy execution
+
+To use the OTO Ladder code in thinkorswim:
+1. Copy the code from the strategy output or load the generated .ts file
+2. In thinkorswim, go to Studies > Edit Studies > Create
+3. Paste the code and click "Create"
+4. Apply the custom study to your chart
+
+#### OTO Order Chain Structure
+
+The strategy creates an order chain with the following structure:
+- **First Order**: Sell 5% of original shares at the current step level
+- **Second Order**: Buy back the same number of shares at 2x step lower (activated after first order fills)
+- **Third Order**: Sell the shares again at the next step higher (activated after second order fills)
+
+All orders in the chain use EXTO time-in-force, ensuring they remain active during extended trading hours.
 
 ## Creating Custom Strategies
 
@@ -741,5 +896,4 @@ strategy_id = strategy_service.start_strategy(
 
 # Monitor strategy status
 status = strategy_service.get_strategy_status(strategy_id)
-print(f"Strategy status: {status['status']}")
-``` 
+print(f"Strategy status: {status['status']}") 

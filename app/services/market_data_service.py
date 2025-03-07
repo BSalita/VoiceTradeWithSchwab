@@ -192,6 +192,93 @@ class MarketDataService:
                 'error': f"Failed to register price callback: {str(e)}"
             }
     
+    def get_historical_data(self, symbol: str, interval: str, start_time, end_time, trading_session) -> List[Dict[str, Any]]:
+        """
+        Get historical price data for a given symbol
+        
+        Args:
+            symbol: Stock symbol
+            interval: Time interval (e.g., '1day', '1hour', '5min')
+            start_time: Start date/time
+            end_time: End date/time
+            trading_session: Type of trading session (REGULAR, EXTENDED)
+            
+        Returns:
+            List of historical price data points
+        """
+        if not self.api_client:
+            raise ValueError("API client not set")
+        
+        try:
+            # In mock mode, generate simulated data
+            if hasattr(self.api_client, 'mock_mode') and self.api_client.mock_mode:
+                return self._generate_mock_historical_data(symbol, interval, start_time, end_time)
+            
+            # In real mode, call the API
+            data = self.api_client.get_historical_data(
+                symbol=symbol,
+                interval=interval,
+                start_time=start_time,
+                end_time=end_time,
+                session=trading_session
+            )
+            
+            logger.info(f"Retrieved {len(data)} historical data points for {symbol}")
+            return data
+            
+        except Exception as e:
+            logger.error(f"Error getting historical data for {symbol}: {str(e)}")
+            return []
+    
+    def _generate_mock_historical_data(self, symbol: str, interval: str, start_time, end_time) -> List[Dict[str, Any]]:
+        """Generate mock historical data for testing"""
+        import random
+        from datetime import datetime, timedelta
+        
+        # Convert start/end times to datetime if they're strings
+        if isinstance(start_time, str):
+            start_time = datetime.fromisoformat(start_time.replace('Z', '+00:00')).replace(tzinfo=None)
+        if isinstance(end_time, str):
+            end_time = datetime.fromisoformat(end_time.replace('Z', '+00:00')).replace(tzinfo=None)
+        
+        # Determine interval in days
+        if interval == '1day':
+            delta = timedelta(days=1)
+        elif interval == '1hour':
+            delta = timedelta(hours=1)
+        elif interval == '5min':
+            delta = timedelta(minutes=5)
+        else:
+            delta = timedelta(days=1)  # Default
+        
+        # Generate data points
+        data = []
+        current_time = start_time
+        base_price = 100.0  # Starting price
+        current_price = base_price
+        
+        while current_time <= end_time:
+            # Create some random price movement
+            open_price = current_price
+            close_price = open_price * (1 + (random.random() - 0.5) * 0.02)  # ±1% change
+            high_price = max(open_price, close_price) * (1 + random.random() * 0.01)  # Up to 0.5% higher
+            low_price = min(open_price, close_price) * (1 - random.random() * 0.01)  # Up to 0.5% lower
+            volume = int(random.uniform(500000, 5000000))
+            
+            data.append({
+                "timestamp": current_time.isoformat() + "Z",
+                "open": open_price,
+                "high": high_price,
+                "low": low_price, 
+                "close": close_price,
+                "volume": volume
+            })
+            
+            current_price = close_price
+            current_time += delta
+        
+        return data
+    
     def get_market_hours(self) -> Dict[str, Any]:
         """Get market hours."""
         if not self.api_client:
